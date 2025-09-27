@@ -1,2 +1,1 @@
 Pulse Check
-PulseCheck Settings

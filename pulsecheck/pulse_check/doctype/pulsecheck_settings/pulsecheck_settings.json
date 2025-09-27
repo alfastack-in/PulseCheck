@@ -62,7 +62,7 @@
  "links": [],
  "modified": "2025-09-27 16:46:38.019696",
  "modified_by": "Administrator",
- "module": "PulseCheck Settings",
+  "module": "Pulse Check",
  "name": "PulseCheck Settings",
  "owner": "Administrator",
  "permissions": [
