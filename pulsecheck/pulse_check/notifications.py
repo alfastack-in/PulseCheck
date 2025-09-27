@@ -20,6 +20,7 @@ __all__ = [
     "already_executed",
     "extract_schedule",
     "get_logger",
+    "get_employee_directory",
     "get_settings",
     "get_slack_recipients",
     "get_slack_token",
@@ -223,36 +224,28 @@ def _employee_table_exists() -> bool:
     return False
 
 
-def _employee_has_slack_field() -> bool:
+def _employee_has_field(field: str) -> bool:
     db = getattr(frappe, "db", None)
     has_column = getattr(db, "has_column", None)
     if callable(has_column):
         try:
-            return bool(has_column("Employee", "slack_user_id"))
+            return bool(has_column("Employee", field))
         except Exception:  # pragma: no cover - rely on fallback
             return False
     return False
 
 
+def _employee_has_slack_field() -> bool:
+    return _employee_has_field("slack_user_id")
+
+
 def get_slack_recipients() -> list[dict]:
     """Return active employees that have a Slack user identifier configured."""
 
-    if not _employee_table_exists() or not _employee_has_slack_field():
-        return []
-
-    try:
-        employees = frappe.get_all(  # type: ignore[call-arg]
-            "Employee",
-            filters={"status": "Active", "slack_user_id": ["!=", ""]},
-            fields=["name", "employee_name", "slack_user_id"],
-            order_by="employee_name asc",
-        )
-    except Exception:  # pragma: no cover - frappe provides richer errors
-        logger.warning("Unable to load Slack recipients from Employee records.")
-        return []
+    directory = get_employee_directory(require_slack=True)
 
     recipients = []
-    for employee in employees:
+    for employee in directory:
         slack_id = (employee.get("slack_user_id") or "").strip()
         if not slack_id:
             continue
@@ -265,6 +258,56 @@ def get_slack_recipients() -> list[dict]:
         )
 
     return recipients
+
+
+def get_employee_directory(
+    *, extra_fields: list[str] | None = None, require_slack: bool = False
+) -> list[dict]:
+    """Return active employees with optional extra fields.
+
+    When ``require_slack`` is True the result only includes employees that have a
+    ``slack_user_id`` configured.
+    """
+
+    if not _employee_table_exists():
+        return []
+
+    fields: set[str] = {"name", "employee_name"}
+
+    if require_slack:
+        if not _employee_has_slack_field():
+            return []
+        fields.add("slack_user_id")
+    elif _employee_has_slack_field():
+        fields.add("slack_user_id")
+
+    if extra_fields:
+        for field in extra_fields:
+            if _employee_has_field(field):
+                fields.add(field)
+
+    try:
+        employees = frappe.get_all(  # type: ignore[call-arg]
+            "Employee",
+            filters={"status": "Active"},
+            fields=sorted(fields),
+            order_by="employee_name asc",
+        )
+    except Exception:  # pragma: no cover - frappe provides richer errors
+        logger.warning("Unable to load Employee directory for Slack notifications.")
+        return []
+
+    cleaned: list[dict] = []
+    for employee in employees:
+        entry = dict(employee)
+        if "slack_user_id" in entry:
+            entry["slack_user_id"] = (entry.get("slack_user_id") or "").strip()
+        cleaned.append(entry)
+
+    if require_slack:
+        cleaned = [entry for entry in cleaned if entry.get("slack_user_id")]
+
+    return cleaned
 
 
 def get_week_bounds(now: datetime | None = None, *, offset_weeks: int = 0) -> tuple[date, date]:
