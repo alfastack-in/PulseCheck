@@ -145,6 +145,11 @@ def test_send_weekly_prompts_respects_window_with_timezone(monkeypatch):
     assert sent is True
     assert payloads
 
+    prior_week_start, prior_week_end = notifications.get_week_bounds(inside_window, offset_weeks=-1)
+    expected_range = f"{prior_week_start:%b %d} - {prior_week_end:%b %d}"
+    message = payloads[-1]["text"]
+    assert f"last week ({expected_range})" in message
+
 
 def test_should_run_now_handles_timezone_awareness():
     settings = _basic_settings()
@@ -346,6 +351,6 @@ def test_get_slack_token_falls_back_on_error():
 
     token = notifications.get_slack_token(settings)
 
-    assert token == "fallback-token
+    assert token == "fallback-token"
 
 

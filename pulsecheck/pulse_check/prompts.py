@@ -44,7 +44,7 @@ def send_weekly_prompts(now: datetime | None = None) -> bool:
         logger.info("No Slack recipients were found; nothing to send.")
         return False
 
-    week_start, week_end = notifications.get_week_bounds(now)
+    week_start, week_end = notifications.get_week_bounds(now, offset_weeks=-1)
     messages_sent = 0
 
     for recipient in recipients:
@@ -73,5 +73,5 @@ def _compose_prompt(employee_name: str | None, week_start, week_end) -> str:
     friendly_name = employee_name or "there"
     return (
         f"Hi {friendly_name}! It's time for your weekly pulse check.\n"
-        f"Please submit your update for {week_start:%b %d} - {week_end:%b %d}."
+        f"Please submit your update for last week ({week_start:%b %d} - {week_end:%b %d})."
     )
