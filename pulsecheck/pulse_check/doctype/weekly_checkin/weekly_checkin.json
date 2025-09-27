@@ -14,11 +14,11 @@
   "section_break_xdpq",
   "goal",
   "section_break_vtdp",
-  "progress",
+  "progress_reported",
   "column_break_mque",
-  "progress_context",
+  "context",
   "section_break_ydjz",
-  "status",
+  "confidence",
   "column_break_trxi",
   "blockers",
   "section_break_bcrv",
@@ -43,7 +43,8 @@
    "fieldname": "employee",
    "fieldtype": "Link",
    "label": "Employee",
-   "options": "Employee"
+   "options": "Employee",
+   "reqd": 1
   },
   {
    "fieldname": "posting_date",
@@ -68,34 +69,36 @@
    "fieldname": "goal",
    "fieldtype": "Link",
    "label": "Goal",
-   "options": "Goal"
+   "options": "Goal",
+   "reqd": 1
   },
   {
    "fieldname": "section_break_vtdp",
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "progress",
+   "fieldname": "progress_reported",
    "fieldtype": "Int",
-   "label": "Progress"
+   "label": "Progress Reported",
+   "reqd": 1
   },
   {
    "fieldname": "column_break_mque",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "progress_context",
-   "fieldtype": "Small Text",
-   "label": "Progress Context"
+   "fieldname": "context",
+   "fieldtype": "Text",
+   "label": "Context"
   },
   {
    "fieldname": "section_break_ydjz",
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "status",
+   "fieldname": "confidence",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Confidence",
    "options": "On Track\nAt Risk\nBlocked"
   },
   {
@@ -104,7 +107,7 @@
   },
   {
    "fieldname": "blockers",
-   "fieldtype": "Small Text",
+   "fieldtype": "Text",
    "label": "Blockers"
   },
   {
@@ -113,7 +116,7 @@
   },
   {
    "fieldname": "next_week_plan",
-   "fieldtype": "Small Text",
+   "fieldtype": "Text",
    "label": "Next Week Plan"
   }
  ],
