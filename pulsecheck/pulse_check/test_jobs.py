@@ -201,3 +201,31 @@ def test_send_weekly_digest_handles_missing_checkins(monkeypatch):
 
     sent = digests.send_weekly_digest(now=datetime(2024, 1, 8, 10, 5))
     assert sent is False
+
+
+def test_get_slack_token_uses_decrypted_value():
+    calls: list[str] = []
+
+    class Settings(SimpleNamespace):
+        def get_password(self, key: str) -> str:
+            calls.append(key)
+            return "  decrypted-token  "
+
+    settings = Settings(slack_bot_token="should-not-be-used")
+
+    token = notifications.get_slack_token(settings)
+
+    assert token == "decrypted-token"
+    assert calls == ["slack_bot_token"]
+
+
+def test_get_slack_token_falls_back_on_error():
+    class Settings(SimpleNamespace):
+        def get_password(self, key: str) -> str:
+            raise RuntimeError("boom")
+
+    settings = Settings(slack_bot_token="  fallback-token  ")
+
+    token = notifications.get_slack_token(settings)
+
+    assert token == "fallback-token"

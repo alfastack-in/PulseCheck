@@ -147,10 +147,27 @@ def should_run_now(settings, now: datetime | None = None, window_minutes: int = 
 
 
 def get_slack_token(settings) -> str | None:
-    token = getattr(settings, "slack_bot_token", None)
-    if token:
-        token = token.strip()
-    return token or None
+    if not settings:
+        return None
+
+    def _clean(value) -> str | None:
+        if isinstance(value, str):
+            value = value.strip()
+        elif value is not None:
+            value = str(value).strip()
+        return value or None
+
+    get_password = getattr(settings, "get_password", None)
+    if callable(get_password):
+        try:
+            token = _clean(get_password("slack_bot_token"))
+        except Exception:
+            token = None
+        else:
+            if token:
+                return token
+
+    return _clean(getattr(settings, "slack_bot_token", None))
 
 
 def _get_cache():
