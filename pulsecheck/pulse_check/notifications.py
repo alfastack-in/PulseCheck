@@ -141,6 +141,8 @@ def should_run_now(settings, now: datetime | None = None, window_minutes: int = 
         return False
 
     window_start = datetime.combine(now.date(), target_time)
+    if now.tzinfo is not None and window_start.tzinfo is None:
+        window_start = window_start.replace(tzinfo=now.tzinfo)
     window_end = window_start + timedelta(minutes=window_minutes)
 
     return window_start <= now < window_end
