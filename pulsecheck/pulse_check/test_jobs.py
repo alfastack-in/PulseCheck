@@ -255,4 +255,33 @@ def test_send_weekly_digest_skips_outside_window_with_timezone(monkeypatch):
     sent = digests.send_weekly_digest(now=datetime(2024, 1, 8, 9, 30, tzinfo=timezone.utc))
 
     assert sent is False
-    assert not called
+
+
+def test_get_slack_token_uses_decrypted_value():
+    calls: list[str] = []
+
+    class Settings(SimpleNamespace):
+        def get_password(self, key: str) -> str:
+            calls.append(key)
+            return "  decrypted-token  "
+
+    settings = Settings(slack_bot_token="should-not-be-used")
+
+    token = notifications.get_slack_token(settings)
+
+    assert token == "decrypted-token"
+    assert calls == ["slack_bot_token"]
+
+
+def test_get_slack_token_falls_back_on_error():
+    class Settings(SimpleNamespace):
+        def get_password(self, key: str) -> str:
+            raise RuntimeError("boom")
+
+    settings = Settings(slack_bot_token="  fallback-token  ")
+
+    token = notifications.get_slack_token(settings)
+
+    assert token == "fallback-token
+
+
