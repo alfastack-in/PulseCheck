@@ -47,6 +47,23 @@ bench --site <your-site> execute pulsecheck.pulse_check.digests.enqueue_weekly_d
 
 Both commands honour the enable flag, scheduled weekday, notification time, and Slack bot token. They exit gracefully without sending messages when any of the prerequisites are missing.
 
+### Slack Slash Command
+
+Configure a Slack slash command (for example `/pulsecheck`) that points to the whitelisted endpoint:
+
+```
+https://<your-site>/api/method/pulsecheck.pulse_check.api.open_checkin_modal
+```
+
+Users with a mapped `slack_user_id` in the **Employee** DocType will receive a modal that guides them through submitting their weekly check-in.
+
+### Admin Utilities
+
+From the **PulseCheck Settings** form, System Managers can:
+
+- Trigger weekly prompts or digests immediately (bypassing the time window) to validate the configuration.
+- View the most recent execution time for both jobs directly on the dashboard.
+
 
 ### License
 

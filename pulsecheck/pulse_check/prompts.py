@@ -16,7 +16,7 @@ def enqueue_weekly_prompts(now: datetime | None = None) -> bool:
     return send_weekly_prompts(now=now)
 
 
-def send_weekly_prompts(now: datetime | None = None) -> bool:
+def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> bool:
     """Send weekly reminders to all configured Slack recipients."""
 
     settings = notifications.get_settings()
@@ -24,14 +24,14 @@ def send_weekly_prompts(now: datetime | None = None) -> bool:
         logger.warning("Skipping weekly prompts because PulseCheck Settings are unavailable.")
         return False
 
-    if not notifications.notifications_enabled(settings):
+    if not force and not notifications.notifications_enabled(settings):
         logger.info("Weekly prompts are disabled in PulseCheck Settings; skipping run.")
         return False
 
-    if not notifications.should_run_now(settings, now=now):
+    if not force and not notifications.should_run_now(settings, now=now):
         return False
 
-    if notifications.already_executed(_CACHE_KEY, now=now):
+    if not force and notifications.already_executed(_CACHE_KEY, now=now):
         return False
 
     token = notifications.get_slack_token(settings)
@@ -73,5 +73,11 @@ def _compose_prompt(employee_name: str | None, week_start, week_end) -> str:
     friendly_name = employee_name or "there"
     return (
         f"Hi {friendly_name}! It's time for your weekly pulse check.\n"
-        f"Please submit your update for last week ({week_start:%b %d} - {week_end:%b %d})."
+        f"Use `/pulsecheck` to submit your update for last week ({week_start:%b %d} - {week_end:%b %d})."
     )
+
+
+def get_last_prompt_run() -> datetime | None:
+    """Return the cached datetime of the last successful prompts run."""
+
+    return notifications.get_last_execution(_CACHE_KEY)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
+
+from . import digests, notifications, prompts
 
 try:  # pragma: no cover - frappe is only available in a bench environment
     import frappe  # type: ignore
@@ -42,6 +44,16 @@ class Submission:
     context: Optional[str]
     blockers: Optional[str]
     next_week_plan: Optional[str]
+
+
+def _coerce_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return False
 
 
 def _load_payload() -> Dict[str, Any]:
@@ -120,6 +132,46 @@ def _flatten_state_values(state_values: Dict[str, Dict[str, Any]]) -> Dict[str, 
     return flattened
 
 
+def _parse_slack_command_payload() -> Dict[str, Any]:
+    if frappe is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("Frappe must be installed to parse Slack commands.")
+
+    form_dict = getattr(frappe, "form_dict", None) or {}
+
+    if "payload" in form_dict:
+        raw_payload = form_dict.get("payload")
+        if isinstance(raw_payload, bytes):
+            raw_payload = raw_payload.decode("utf-8")
+        if not raw_payload:
+            raise SlackPayloadError("Slack payload is empty.")
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise SlackPayloadError("Slack payload is not valid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise SlackPayloadError("Slack payload is malformed.")
+        payload.setdefault("interaction_type", payload.get("type") or "interaction")
+        return payload
+
+    command_payload = dict(form_dict)
+    if not command_payload:
+        raise SlackPayloadError("Slack command payload is missing.")
+
+    user_section = {
+        "id": command_payload.get("user_id"),
+        "username": command_payload.get("user_name"),
+        "name": command_payload.get("user_name"),
+        "email": command_payload.get("user_email"),
+    }
+
+    command_payload.update({
+        "interaction_type": "command",
+        "user": user_section,
+    })
+
+    return command_payload
+
+
 def _extract_submission(view: Dict[str, Any]) -> Submission:
     state = view.get("state", {}) if isinstance(view, dict) else {}
     values = state.get("values", {}) if isinstance(state, dict) else {}
@@ -171,16 +223,20 @@ def _resolve_employee(payload: Dict[str, Any], metadata: Dict[str, Any]) -> str:
         if frappe.db.exists("Employee", employee_identifier):  # type: ignore[attr-defined]
             return employee_identifier
 
+    debug_details: list[str] = []
+
     user_section = payload.get("user", {})
     if isinstance(user_section, dict):
         slack_user_id = user_section.get("id")
         if slack_user_id:
+            debug_details.append(f"Slack ID {slack_user_id}")
             employee = frappe.db.get_value("Employee", {"slack_user_id": slack_user_id}, "name")  # type: ignore[attr-defined]
             if employee:
                 return employee
 
         user_email = user_section.get("email")
         if user_email:
+            debug_details.append(f"email {user_email}")
             employee = frappe.db.get_value("Employee", {"company_email": user_email}, "name")  # type: ignore[attr-defined]
             if not employee:
                 employee = frappe.db.get_value("Employee", {"personal_email": user_email}, "name")  # type: ignore[attr-defined]
@@ -189,11 +245,267 @@ def _resolve_employee(payload: Dict[str, Any], metadata: Dict[str, Any]) -> str:
 
         username = user_section.get("username") or user_section.get("name")
         if username:
+            debug_details.append(f"username {username}")
             employee = frappe.db.get_value("Employee", {"employee_name": username}, "name")  # type: ignore[attr-defined]
             if employee:
                 return employee
 
-    raise SlackPayloadError("Unable to map the Slack user to an Employee record.")
+    detail_fragment = "; ".join(debug_details)
+    message = "Unable to map the Slack user to an Employee record."
+    if detail_fragment:
+        message = f"{message} (checked {detail_fragment})."
+    if frappe is not None:
+        frappe.log_error(  # type: ignore[attr-defined]
+            message=message,
+            title="PulseCheck Employee Resolution",
+        )
+
+    raise SlackPayloadError(message)
+
+
+def _fetch_employee_goals(employee_name: str) -> List[Dict[str, Any]]:
+    if frappe is None:  # pragma: no cover - runtime guard
+        return []
+
+    try:
+        return frappe.get_all(  # type: ignore[call-arg]
+            "Goal",
+            filters={
+                "employee": employee_name,
+                "is_group": 0,
+                "status": ["!=", "Archived"],
+            },
+            fields=["name", "goal_name", "status", "progress"],
+            order_by="modified desc",
+            limit_page_length=50,
+        )
+    except Exception:  # pragma: no cover - frappe surfaces detailed errors in production
+        return []
+
+
+def _get_employee_details(employee_name: str) -> Dict[str, Any]:
+    if frappe is None:  # pragma: no cover - runtime guard
+        return {"name": employee_name}
+
+    details = frappe.db.get_value(  # type: ignore[attr-defined]
+        "Employee",
+        employee_name,
+        ["name", "employee_name", "company_email", "personal_email"],
+        as_dict=True,
+    )
+
+    if not isinstance(details, dict):
+        return {"name": employee_name}
+
+    details.setdefault("name", employee_name)
+    return details
+
+
+def _build_checkin_modal(
+    employee: Dict[str, Any],
+    goals: List[Dict[str, Any]],
+    *,
+    initial_goal: Optional[str] = None,
+) -> Dict[str, Any]:
+    employee_display = employee.get("employee_name") or employee.get("name") or "your team"
+
+    blocks: List[Dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"Submit your weekly update for *{_truncate_text(employee_display, 150)}*.",
+            },
+        }
+    ]
+
+    options: List[Dict[str, Any]] = []
+    for goal in goals:
+        option = _goal_option(goal)
+        if option:
+            options.append(option)
+    initial_option = None
+    if initial_goal:
+        initial_option = next((opt for opt in options if opt["value"] == initial_goal), None)
+
+    if options:
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "goal_block",
+                "label": {"type": "plain_text", "text": "Goal"},
+                "element": {
+                    "type": "static_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select a goal",
+                    },
+                    "action_id": "goal_select",
+                    "options": options,
+                    **({"initial_option": initial_option} if initial_option else {}),
+                },
+            }
+        )
+    else:
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "goal_block",
+                "label": {"type": "plain_text", "text": "Goal"},
+                "hint": {
+                    "type": "plain_text",
+                    "text": "Start typing the Goal ID (for example HR-GOAL-2025-0001).",
+                },
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "goal_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Enter the Goal ID",
+                    },
+                },
+            }
+        )
+
+    blocks.extend(
+        [
+            {
+                "type": "input",
+                "block_id": "progress_block",
+                "label": {"type": "plain_text", "text": "Progress (%)"},
+                "hint": {
+                    "type": "plain_text",
+                    "text": "Provide a number between 0 and 100.",
+                },
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "progress_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "e.g. 75",
+                    },
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "confidence_block",
+                "label": {"type": "plain_text", "text": "Confidence"},
+                "optional": True,
+                "element": {
+                    "type": "static_select",
+                    "action_id": "confidence_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "How confident are you?",
+                    },
+                    "options": [
+                        _static_option("On Track"),
+                        _static_option("At Risk"),
+                        _static_option("Blocked"),
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "context_block",
+                "label": {"type": "plain_text", "text": "Context"},
+                "optional": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "context_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "What did you accomplish?",
+                    },
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "blockers_block",
+                "label": {"type": "plain_text", "text": "Blockers"},
+                "optional": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "blockers_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Is anything slowing you down?",
+                    },
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "plan_block",
+                "label": {"type": "plain_text", "text": "Next Week Plan"},
+                "optional": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plan_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "What will you focus on next week?",
+                    },
+                },
+            },
+        ]
+    )
+
+    metadata = {"employee": employee.get("name")}
+
+    return {
+        "type": "modal",
+        "callback_id": "pulsecheck_weekly_checkin",
+        "title": {"type": "plain_text", "text": "Weekly Pulse Check"},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps(metadata),
+        "blocks": blocks,
+    }
+
+
+def _static_option(label: str) -> Dict[str, Any]:
+    return {
+        "text": {"type": "plain_text", "text": _truncate_text(label, 75)},
+        "value": label,
+    }
+
+
+def _goal_option(goal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    name = (goal.get("name") or "").strip()
+    if not name:
+        return None
+
+    title = goal.get("goal_name") or name
+    status = goal.get("status")
+    progress = goal.get("progress")
+
+    fragments = [_truncate_text(str(title), 60)]
+    extra = []
+    if progress not in (None, ""):
+        try:
+            extra.append(f"{int(float(progress))}%")
+        except (TypeError, ValueError):
+            pass
+    if status and isinstance(status, str):
+        extra.append(status)
+    if extra:
+        fragments.append(f"({' · '.join(extra)})")
+
+    return {
+        "text": {"type": "plain_text", "text": _truncate_text(" ".join(fragments), 75)},
+        "value": name,
+    }
+
+
+def _truncate_text(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    if max_length <= 1:
+        return value[:max_length]
+    return value[: max_length - 1] + "…"
 
 
 def _create_weekly_checkin(employee: str, submission: Submission) -> Any:
@@ -205,6 +517,11 @@ def _create_weekly_checkin(employee: str, submission: Submission) -> Any:
 
     if submission.progress is None:
         raise SlackPayloadError("Progress value is required to submit a check-in.")
+
+    if not frappe.db.exists("Goal", submission.goal):  # type: ignore[attr-defined]
+        raise SlackPayloadError(
+            f"The selected goal ({submission.goal}) could not be found. Please pick a valid goal."
+        )
 
     doc = frappe.get_doc(  # type: ignore[attr-defined]
         {
@@ -288,6 +605,133 @@ def _error_response(message: str) -> Dict[str, Any]:
     }
 
 
+def _ephemeral_response(message: str, *, error: bool = False, interaction_type: str = "command") -> Dict[str, Any]:
+    text = message
+    if error and not text.startswith(":warning:"):
+        text = f":warning: {text}"
+
+    if interaction_type == "command":
+        return {"response_type": "ephemeral", "text": text}
+
+    return {"ok": not error, "message": text}
+
+
+def _enforce_system_manager() -> None:
+    if frappe is None:  # pragma: no cover - runtime guard
+        return
+
+    only_for = getattr(frappe, "only_for", None)
+    if callable(only_for):
+        only_for(("System Manager",))
+
+
+@_whitelist(allow_guest=True, methods=["POST"])
+def open_checkin_modal() -> Dict[str, Any]:
+    """Slash command/shortcut entry point that opens the weekly check-in modal."""
+
+    if frappe is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("Frappe must be installed to handle Slack interactions.")
+
+    frappe.local.flags.ignore_csrf = True  # type: ignore[attr-defined]
+
+    interaction_type = "command"
+
+    try:
+        payload = _parse_slack_command_payload()
+        interaction_type = payload.get("interaction_type") or "command"
+
+        trigger_id = payload.get("trigger_id")
+        if not trigger_id:
+            raise SlackPayloadError("Slack trigger_id is missing from the request.")
+
+        settings = notifications.get_settings()
+        if not settings:
+            raise SlackPayloadError("PulseCheck Settings are unavailable. Please contact an administrator.")
+
+        token = notifications.get_slack_token(settings)
+        if not token:
+            raise SlackPayloadError("Slack bot token is missing. Configure it in PulseCheck Settings.")
+
+        user_section = payload.get("user") or {}
+        employee = _resolve_employee({"user": user_section}, {})
+        employee_details = _get_employee_details(employee)
+        goals = _fetch_employee_goals(employee)
+
+        command_text = payload.get("text") if isinstance(payload.get("text"), str) else ""
+        initial_goal = _match_initial_goal(command_text, goals)
+
+        view = _build_checkin_modal(employee_details, goals, initial_goal=initial_goal)
+
+        try:
+            notifications.open_slack_modal(token, trigger_id, view)
+        except notifications.SlackDeliveryError as exc:
+            raise SlackPayloadError(str(exc)) from exc
+
+        return _ephemeral_response("Opening the Pulse Check modal…", interaction_type=interaction_type)
+    except SlackPayloadError as exc:
+        return _ephemeral_response(str(exc), error=True, interaction_type=interaction_type)
+
+
+def _match_initial_goal(command_text: str | None, goals: List[Dict[str, Any]]) -> Optional[str]:
+    if not command_text:
+        return None
+
+    text = command_text.strip()
+    if not text:
+        return None
+
+    for goal in goals:
+        if text == goal.get("name") or text == goal.get("goal_name"):
+            return goal.get("name")
+    return None
+
+
+@_whitelist(methods=["POST"])
+def trigger_weekly_prompts(force: Any = True) -> Dict[str, Any]:
+    """Manually trigger the weekly prompt job."""
+
+    if frappe is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("Frappe must be installed to manage Pulse Check prompts.")
+
+    _enforce_system_manager()
+
+    now = frappe.utils.now_datetime()  # type: ignore[attr-defined]
+    sent = prompts.send_weekly_prompts(now=now, force=_coerce_truthy(force))
+    return {"sent": bool(sent), "timestamp": now.isoformat()}
+
+
+@_whitelist(methods=["POST"])
+def trigger_weekly_digest(force: Any = True) -> Dict[str, Any]:
+    """Manually trigger the weekly digest job."""
+
+    if frappe is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("Frappe must be installed to manage Pulse Check digests.")
+
+    _enforce_system_manager()
+
+    now = frappe.utils.now_datetime()  # type: ignore[attr-defined]
+    sent = digests.send_weekly_digest(now=now, force=_coerce_truthy(force))
+    return {"sent": bool(sent), "timestamp": now.isoformat()}
+
+
+@_whitelist()
+def get_job_status() -> Dict[str, Optional[str]]:
+    """Return cached execution timestamps for scheduled jobs."""
+
+    if frappe is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("Frappe must be installed to fetch Pulse Check job status.")
+
+    _enforce_system_manager()
+
+    prompts_run = prompts.get_last_prompt_run()
+    digest_run = digests.get_last_digest_run()
+
+    return {
+        "prompts_last_run": prompts_run.isoformat() if prompts_run else None,
+        "digests_last_run": digest_run.isoformat() if digest_run else None,
+    }
+
+
 @_whitelist(allow_guest=True, methods=["POST"])
 def handle_slack_interaction() -> Dict[str, Any]:
     """Webhook handler invoked by Slack interactive components."""
@@ -320,4 +764,3 @@ def handle_slack_interaction() -> Dict[str, Any]:
         if frappe is not None:
             frappe.log_error(message=str(exc), title="PulseCheck Slack Interaction")  # type: ignore[attr-defined]
         return _error_response(str(exc))
-

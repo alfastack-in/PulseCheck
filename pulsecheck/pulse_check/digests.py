@@ -18,7 +18,7 @@ def enqueue_weekly_digest(now: datetime | None = None) -> bool:
     return send_weekly_digest(now=now)
 
 
-def send_weekly_digest(now: datetime | None = None) -> bool:
+def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> bool:
     """Send a Slack digest summarising submitted Weekly Check-ins."""
 
     settings = notifications.get_settings()
@@ -26,14 +26,14 @@ def send_weekly_digest(now: datetime | None = None) -> bool:
         logger.warning("Skipping weekly digest because PulseCheck Settings are unavailable.")
         return False
 
-    if not notifications.notifications_enabled(settings):
+    if not force and not notifications.notifications_enabled(settings):
         logger.info("Weekly digests are disabled in PulseCheck Settings; skipping run.")
         return False
 
-    if not notifications.should_run_now(settings, now=now):
+    if not force and not notifications.should_run_now(settings, now=now):
         return False
 
-    if notifications.already_executed(_CACHE_KEY, now=now):
+    if not force and notifications.already_executed(_CACHE_KEY, now=now):
         return False
 
     token = notifications.get_slack_token(settings)
@@ -310,3 +310,9 @@ def _compose_manager_digest(
 
 def _normalize(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+def get_last_digest_run() -> datetime | None:
+    """Return the cached datetime of the last successful digest run."""
+
+    return notifications.get_last_execution(_CACHE_KEY)

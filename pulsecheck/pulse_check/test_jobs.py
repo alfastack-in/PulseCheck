@@ -222,6 +222,29 @@ def test_send_weekly_prompts_skips_outside_window_with_timezone(monkeypatch):
     assert not called
 
 
+def test_send_weekly_prompts_force_bypasses_checks(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+
+    payloads: list[dict] = []
+
+    def _capture(token, payload):
+        payloads.append(payload)
+
+    monkeypatch.setattr(notifications, "post_to_slack", _capture)
+
+    outside_window = datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
+
+    first = prompts.send_weekly_prompts(now=outside_window, force=True)
+    second = prompts.send_weekly_prompts(now=outside_window, force=True)
+
+    assert first is True
+    assert second is True
+    assert len(payloads) == 2
+
+
 def test_send_weekly_digest_summarises_checkins(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings()
@@ -367,6 +390,45 @@ def test_send_weekly_digest_skips_outside_window_with_timezone(monkeypatch):
 
     assert sent is False
     assert not called
+
+
+def test_send_weekly_digest_force_bypasses_checks(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _enable_checkins_table()
+    _FAKE_EMPLOYEES.extend(
+        [
+            {"name": "EMP-MGR", "employee_name": "Grace Manager", "slack_user_id": "UMGR"},
+            {"name": "EMP-ADA", "employee_name": "Ada Lovelace", "reports_to": "EMP-MGR"},
+        ]
+    )
+    _FAKE_CHECKINS.append(
+        {
+            "employee": "EMP-ADA",
+            "employee_name": "Ada Lovelace",
+            "goal": "Grow pipeline",
+            "progress_reported": 80,
+            "confidence": "On Track",
+            "blockers": "None",
+        }
+    )
+
+    payloads: list[dict] = []
+
+    def _capture(token, payload):
+        payloads.append(payload)
+
+    monkeypatch.setattr(notifications, "post_to_slack", _capture)
+
+    outside_window = datetime(2024, 1, 8, 9, 0, tzinfo=timezone.utc)
+
+    first = digests.send_weekly_digest(now=outside_window, force=True)
+    second = digests.send_weekly_digest(now=outside_window, force=True)
+
+    assert first is True
+    assert second is True
+    assert len(payloads) == 2
 
 
 def test_get_slack_token_uses_decrypted_value():

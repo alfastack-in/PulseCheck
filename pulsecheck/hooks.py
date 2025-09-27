@@ -192,6 +192,7 @@ override_whitelisted_methods = {
 
 ignore_csrf = [
     "pulsecheck.pulse_check.api.handle_slack_interaction",
+    "pulsecheck.pulse_check.api.open_checkin_modal",
 ]
 #
 # each overriding function accepts a `data` argument;
@@ -257,4 +258,3 @@ ignore_csrf = [
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-

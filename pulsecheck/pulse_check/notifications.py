@@ -19,6 +19,7 @@ __all__ = [
     "SlackDeliveryError",
     "already_executed",
     "extract_schedule",
+    "get_last_execution",
     "get_logger",
     "get_employee_directory",
     "get_settings",
@@ -27,6 +28,7 @@ __all__ = [
     "get_week_bounds",
     "mark_executed",
     "notifications_enabled",
+    "open_slack_modal",
     "post_to_slack",
     "should_run_now",
 ]
@@ -325,6 +327,39 @@ def get_week_bounds(now: datetime | None = None, *, offset_weeks: int = 0) -> tu
 def post_to_slack(token: str, payload: dict) -> None:
     """Send a message payload to Slack's chat.postMessage API."""
 
+    _call_slack_api(token, "chat.postMessage", payload)
+
+
+def open_slack_modal(token: str, trigger_id: str, view: dict) -> None:
+    """Open a Slack modal for an interactive command or shortcut."""
+
+    if not trigger_id:
+        raise SlackDeliveryError("Slack trigger_id is required to open a modal.")
+
+    _call_slack_api(
+        token,
+        "views.open",
+        {
+            "trigger_id": trigger_id,
+            "view": view,
+        },
+    )
+
+
+def _parse_time(value: str) -> time | None:
+    """Parse a time string in HH:MM or HH:MM:SS format."""
+
+    for pattern in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(value, pattern).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _call_slack_api(token: str, method: str, payload: dict) -> None:
+    """Invoke a Slack Web API method with shared error handling."""
+
     if urllib_request is None or urllib_error is None:  # pragma: no cover
         raise SlackDeliveryError("The urllib library is not available in this environment.")
 
@@ -333,10 +368,9 @@ def post_to_slack(token: str, payload: dict) -> None:
         "Content-Type": "application/json; charset=utf-8",
     }
 
-    data = json.dumps(payload).encode("utf-8")
     request = urllib_request.Request(
-        "https://slack.com/api/chat.postMessage",
-        data=data,
+        f"https://slack.com/api/{method}",
+        data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
     )
@@ -356,12 +390,15 @@ def post_to_slack(token: str, payload: dict) -> None:
         raise SlackDeliveryError(data.get("error") or "Unknown Slack API error")
 
 
-def _parse_time(value: str) -> time | None:
-    """Parse a time string in HH:MM or HH:MM:SS format."""
+def get_last_execution(cache_key: str) -> datetime | None:
+    """Return the datetime of the last execution recorded for ``cache_key``."""
 
-    for pattern in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(value, pattern).time()
-        except ValueError:
-            continue
-    return None
+    cache = _get_cache()
+    value = cache.get_value(cache_key)
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:  # pragma: no cover - invalid cache entries are ignored
+        return None
