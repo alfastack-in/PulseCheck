@@ -2,8 +2,12 @@
 # See license.txt
 
 # import frappe
+import pytest
+
+pytest.importorskip("frappe")
+
 from frappe.tests.utils import FrappeTestCase
 
 
 class TestPulsecheckSettings(FrappeTestCase):
-pass
+    pass
