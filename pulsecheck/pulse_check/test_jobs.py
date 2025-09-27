@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import types
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -115,6 +115,36 @@ def test_should_run_now_matches_schedule():
     later = datetime(2024, 1, 1, 12, 0)
     assert not notifications.should_run_now(settings, later)
 
+    aware_now = datetime(2024, 1, 1, 10, 15, tzinfo=timezone.utc)
+    assert notifications.should_run_now(settings, aware_now)
+
+    aware_later = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    assert not notifications.should_run_now(settings, aware_later)
+
+
+def test_send_weekly_prompts_respects_window_with_timezone(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+
+    payloads: list[dict] = []
+
+    def _capture(token, payload):
+        payloads.append(payload)
+
+    monkeypatch.setattr(notifications, "post_to_slack", _capture)
+
+    outside_window = datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
+    sent = prompts.send_weekly_prompts(now=outside_window)
+    assert sent is False
+    assert not payloads
+
+    inside_window = datetime(2024, 1, 1, 10, 5, tzinfo=timezone.utc)
+    sent = prompts.send_weekly_prompts(now=inside_window)
+    assert sent is True
+    assert payloads
+
 
 def test_send_weekly_prompts_skips_when_disabled(monkeypatch):
     global _FAKE_SETTINGS
@@ -188,6 +218,40 @@ def test_send_weekly_digest_summarises_checkins(monkeypatch):
     assert payloads, "Expected a digest payload to be sent"
     assert "Pulse Check digest" in payloads[0]["text"]
     assert "Ada Lovelace" in payloads[0]["text"]
+
+
+def test_send_weekly_digest_respects_window_with_timezone(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _enable_checkins_table()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_CHECKINS.append(
+        {
+            "employee_name": "Ada Lovelace",
+            "goal": "Grow pipeline",
+            "progress_reported": 80,
+            "confidence": "On Track",
+            "blockers": "None",
+        }
+    )
+
+    payloads: list[dict] = []
+
+    def _capture(token, payload):
+        payloads.append(payload)
+
+    monkeypatch.setattr(notifications, "post_to_slack", _capture)
+
+    outside_window = datetime(2024, 1, 8, 9, 0, tzinfo=timezone.utc)
+    sent = digests.send_weekly_digest(now=outside_window)
+    assert sent is False
+    assert not payloads
+
+    inside_window = datetime(2024, 1, 8, 10, 5, tzinfo=timezone.utc)
+    sent = digests.send_weekly_digest(now=inside_window)
+    assert sent is True
+    assert payloads
 
 
 def test_send_weekly_digest_handles_missing_checkins(monkeypatch):
