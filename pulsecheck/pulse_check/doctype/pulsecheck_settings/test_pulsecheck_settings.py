@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class TestPulseCheckSetting(FrappeTestCase):
-	pass
+class TestPulsecheckSettings(FrappeTestCase):
+pass
