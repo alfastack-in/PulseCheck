@@ -166,6 +166,15 @@ app_license = "mit"
 # 	],
 # }
 
+scheduler_events = {
+	"cron": {
+		"*/15 * * * *": [
+			"pulsecheck.pulse_check.prompts.enqueue_weekly_prompts",
+			"pulsecheck.pulse_check.digests.enqueue_weekly_digest",
+		]
+	}
+}
+
 # Testing
 # -------
 

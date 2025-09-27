@@ -3,7 +3,10 @@
 
 import pytest
 
+import frappe
+
 frappe = pytest.importorskip("frappe")
+
 from frappe.tests.utils import FrappeTestCase
 
 
