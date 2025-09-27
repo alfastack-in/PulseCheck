@@ -395,5 +395,3 @@ def test_get_slack_token_falls_back_on_error():
     token = notifications.get_slack_token(settings)
 
     assert token == "fallback-token"
-
-
