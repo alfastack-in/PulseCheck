@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "autoname": "format:WC-{employee}-{date}-{###}",
+ "creation": "2025-09-27 16:32:51.400929",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_f74o",
+  "employee",
+  "posting_date",
+  "column_break_ljde",
+  "employee_name",
+  "amended_from",
+  "section_break_xdpq",
+  "goal",
+  "section_break_vtdp",
+  "progress",
+  "column_break_mque",
+  "progress_context",
+  "section_break_ydjz",
+  "status",
+  "column_break_trxi",
+  "blockers",
+  "section_break_bcrv",
+  "next_week_plan"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_f74o",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Weekly Checkin",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date"
+  },
+  {
+   "fieldname": "column_break_ljde",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name"
+  },
+  {
+   "fieldname": "section_break_xdpq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "goal",
+   "fieldtype": "Link",
+   "label": "Goal",
+   "options": "Goal"
+  },
+  {
+   "fieldname": "section_break_vtdp",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "progress",
+   "fieldtype": "Int",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "column_break_mque",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "progress_context",
+   "fieldtype": "Small Text",
+   "label": "Progress Context"
+  },
+  {
+   "fieldname": "section_break_ydjz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "On Track\nAt Risk\nBlocked"
+  },
+  {
+   "fieldname": "column_break_trxi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "blockers",
+   "fieldtype": "Small Text",
+   "label": "Blockers"
+  },
+  {
+   "fieldname": "section_break_bcrv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "next_week_plan",
+   "fieldtype": "Small Text",
+   "label": "Next Week Plan"
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-09-27 16:40:24.524453",
+ "modified_by": "Administrator",
+ "module": "Pulse Check",
+ "name": "Weekly Checkin",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Blue",
+   "title": "On Track"
+  },
+  {
+   "color": "Red",
+   "title": "At Risk"
+  },
+  {
+   "color": "Yellow",
+   "title": "Blocked"
+  }
+ ],
+ "track_views": 1
+}

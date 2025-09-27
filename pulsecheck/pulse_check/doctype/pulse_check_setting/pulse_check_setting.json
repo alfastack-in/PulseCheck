@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "creation": "2025-09-27 16:40:54.858698",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_tab",
+  "enable_weekly_prompts",
+  "slack_setting_tab",
+  "slack_bot_token",
+  "notification_setting_tab",
+  "notification_day",
+  "column_break_nbhd",
+  "notification_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_tab",
+   "fieldtype": "Tab Break",
+   "label": "General"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_weekly_prompts",
+   "fieldtype": "Check",
+   "label": "Enable Weekly Prompts"
+  },
+  {
+   "fieldname": "slack_setting_tab",
+   "fieldtype": "Tab Break",
+   "label": "Slack Setting"
+  },
+  {
+   "fieldname": "slack_bot_token",
+   "fieldtype": "Password",
+   "label": "Slack Bot Token"
+  },
+  {
+   "fieldname": "notification_setting_tab",
+   "fieldtype": "Tab Break",
+   "label": "Notification Setting"
+  },
+  {
+   "fieldname": "notification_day",
+   "fieldtype": "Select",
+   "label": "Notification Day",
+   "options": "Monday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday"
+  },
+  {
+   "fieldname": "column_break_nbhd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "notification_time",
+   "fieldtype": "Time",
+   "label": "Notification time"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-09-27 16:46:38.019696",
+ "modified_by": "Administrator",
+ "module": "Pulse Check",
+ "name": "Pulse Check Setting",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
