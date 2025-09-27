@@ -186,6 +186,13 @@ scheduler_events = {
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "pulsecheck.event.get_events"
 # }
+override_whitelisted_methods = {
+    "pulsecheck.pulse_check.api.handle_slack_interaction": "pulsecheck.pulse_check.api.handle_slack_interaction",
+}
+
+ignore_csrf = [
+    "pulsecheck.pulse_check.api.handle_slack_interaction",
+]
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
