@@ -1,0 +1,203 @@
+"""Tests for Slack prompt and digest jobs."""
+from __future__ import annotations
+
+import logging
+import sys
+import types
+from datetime import datetime
+from types import SimpleNamespace
+
+import pytest
+
+
+class DummyCache:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    def get_value(self, key: str):
+        return self.store.get(key)
+
+    def set_value(self, key: str, value: str, expires_in_sec: int | None = None):
+        self.store[key] = value
+
+    def clear(self) -> None:
+        self.store.clear()
+
+
+_FAKE_SETTINGS: SimpleNamespace | None = None
+_FAKE_EMPLOYEES: list[dict] = []
+_FAKE_CHECKINS: list[dict] = []
+_TABLES: set[str] = set()
+_COLUMNS: set[tuple[str, str]] = set()
+_CACHE = DummyCache()
+
+
+fake_frappe = types.ModuleType("frappe")
+fake_frappe.logger = lambda name: logging.getLogger(name)
+fake_frappe.cache = lambda: _CACHE
+fake_frappe.utils = SimpleNamespace(now_datetime=lambda: datetime(2024, 1, 1, 10, 0))
+
+
+def _table_exists(table: str) -> bool:
+    return table in _TABLES
+
+
+def _has_column(doctype: str, column: str) -> bool:
+    return (doctype, column) in _COLUMNS
+
+
+fake_frappe.db = SimpleNamespace(table_exists=_table_exists, has_column=_has_column)
+
+
+def _get_all(doctype: str, **_kwargs):
+    if doctype == "Employee":
+        return list(_FAKE_EMPLOYEES)
+    if doctype == "Weekly Checkin":
+        return list(_FAKE_CHECKINS)
+    return []
+
+
+def _get_single(_doctype: str):
+    return _FAKE_SETTINGS
+
+
+fake_frappe.get_all = _get_all
+fake_frappe.get_single = _get_single
+
+sys.modules.setdefault("frappe", fake_frappe)
+
+from pulsecheck.pulse_check import digests, notifications, prompts
+
+
+def _reset_state():
+    global _FAKE_SETTINGS, _FAKE_EMPLOYEES, _FAKE_CHECKINS
+    _FAKE_SETTINGS = None
+    _FAKE_EMPLOYEES = []
+    _FAKE_CHECKINS = []
+    _TABLES.clear()
+    _COLUMNS.clear()
+    _CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _prepare_environment(monkeypatch):
+    _reset_state()
+    monkeypatch.setattr(fake_frappe.utils, "now_datetime", lambda: datetime(2024, 1, 1, 10, 0))
+    yield
+    _reset_state()
+
+
+def _basic_settings(**overrides) -> SimpleNamespace:
+    values = {
+        "enable_weekly_prompts": 1,
+        "notification_day": "Monday",
+        "notification_time": "10:00:00",
+        "slack_bot_token": "xoxb-test",
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _enable_employee_directory():
+    _TABLES.add("tabEmployee")
+    _COLUMNS.add(("Employee", "slack_user_id"))
+
+
+def _enable_checkins_table():
+    _TABLES.add("tabWeekly Checkin")
+
+
+def test_should_run_now_matches_schedule():
+    settings = _basic_settings()
+    now = datetime(2024, 1, 1, 10, 15)  # Monday
+    assert notifications.should_run_now(settings, now)
+
+    later = datetime(2024, 1, 1, 12, 0)
+    assert not notifications.should_run_now(settings, later)
+
+
+def test_send_weekly_prompts_skips_when_disabled(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings(enable_weekly_prompts=0)
+    _enable_employee_directory()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+
+    called = []
+    monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: called.append((args, kwargs)))
+
+    sent = prompts.send_weekly_prompts(now=datetime(2024, 1, 1, 10, 5))
+    assert sent is False
+    assert not called
+
+
+def test_send_weekly_prompts_requires_token(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings(slack_bot_token="   ")
+    _enable_employee_directory()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+
+    called = []
+    monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: called.append((args, kwargs)))
+
+    sent = prompts.send_weekly_prompts(now=datetime(2024, 1, 1, 10, 5))
+    assert sent is False
+    assert not called
+
+
+def test_send_weekly_prompts_marks_execution(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+
+    monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: None)
+
+    first_run = prompts.send_weekly_prompts(now=datetime(2024, 1, 1, 10, 5))
+    second_run = prompts.send_weekly_prompts(now=datetime(2024, 1, 1, 10, 10))
+
+    assert first_run is True
+    assert second_run is False
+
+
+def test_send_weekly_digest_summarises_checkins(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _enable_checkins_table()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_CHECKINS.append(
+        {
+            "employee_name": "Ada Lovelace",
+            "goal": "Grow pipeline",
+            "progress_reported": 80,
+            "confidence": "On Track",
+            "blockers": "None",
+        }
+    )
+
+    payloads: list[dict] = []
+
+    def _capture(token, payload):
+        payloads.append(payload)
+
+    monkeypatch.setattr(notifications, "post_to_slack", _capture)
+
+    sent = digests.send_weekly_digest(now=datetime(2024, 1, 8, 10, 5))
+
+    assert sent is True
+    assert payloads, "Expected a digest payload to be sent"
+    assert "Pulse Check digest" in payloads[0]["text"]
+    assert "Ada Lovelace" in payloads[0]["text"]
+
+
+def test_send_weekly_digest_handles_missing_checkins(monkeypatch):
+    global _FAKE_SETTINGS
+    _FAKE_SETTINGS = _basic_settings()
+    _enable_employee_directory()
+    _enable_checkins_table()
+    _FAKE_EMPLOYEES.append({"employee_name": "Ada", "slack_user_id": "U01"})
+
+    monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: None)
+
+    sent = digests.send_weekly_digest(now=datetime(2024, 1, 8, 10, 5))
+    assert sent is False
