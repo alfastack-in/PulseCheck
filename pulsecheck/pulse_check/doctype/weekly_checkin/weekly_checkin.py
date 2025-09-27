@@ -8,16 +8,13 @@ from frappe.model.document import Document
 class WeeklyCheckin(Document):
     """Weekly progress check-in document."""
 
-    def before_insert(self):
-        """Populate posting date when the document is first created."""
-        if not self.posting_date:
-            self.posting_date = frappe.utils.today()
-
-        self._validate_progress_range()
-
     def validate(self):
         """Run document level validations prior to saving."""
         self._validate_progress_range()
+
+    def before_submit(self):
+        """Stamp the posting date just before submission."""
+        self.posting_date = frappe.utils.today()
 
     def _validate_progress_range(self):
         """Ensure progress related values stay within a 0-100 range."""
