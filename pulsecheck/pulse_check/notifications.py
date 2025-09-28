@@ -236,17 +236,6 @@ def mark_executed(cache_key: str, now: datetime | None = None) -> None:
     cache.set_value(cache_key, now.isoformat())
 
 
-def _employee_table_exists() -> bool:
-    db = getattr(frappe, "db", None)
-    table_exists = getattr(db, "table_exists", None)
-    if callable(table_exists):
-        try:
-            return bool(table_exists("tabEmployee"))
-        except Exception:  # pragma: no cover - rely on fallback
-            return False
-    return False
-
-
 def get_slack_recipients() -> list[dict]:
     """Return active employees that can be contacted on Slack by user identifier.
 
@@ -286,10 +275,6 @@ def get_employee_directory(
     linked User ID, which we treat as the Slack recipient identifier.
     """
 
-    if not _employee_table_exists():
-        log_event("Directory", step="missing_employee_table")
-        return []
-
     try:
         meta = frappe.get_meta("Employee")  # type: ignore[attr-defined]
         available_fields = {df.fieldname for df in getattr(meta, "fields", [])}
@@ -297,13 +282,17 @@ def get_employee_directory(
         available_fields = set()
 
     fields: set[str] = {"name", "employee_name", "user_id"}
+    fallback_fields = [field for field in _EMPLOYEE_IDENTIFIER_FIELDS if field in available_fields]
+    fields.update(fallback_fields)
 
     if extra_fields:
         for field in extra_fields:
-            if field in available_fields or field in {"reports_to", "leave_approver"}:
+            if field in available_fields:
                 fields.add(field)
+            else:
+                log_event("Directory", step="missing_field", field=field)
 
-    filters = {"status": "Active"}
+    filters: dict[str, object] = {"status": "Active"}
     if require_slack:
         filters["user_id"] = ["!=", ""]
 
@@ -313,14 +302,16 @@ def get_employee_directory(
             filters=filters,
             fields=sorted(fields),
             order_by="employee_name asc",
+            ignore_permissions=True,
         )
-    except Exception:
-        logger.warning("Unable to load Employee directory for Slack notifications.")
+    except Exception as exc:
+        logger.warning("Unable to load Employee directory for Slack notifications: %s", exc)
         log_event(
             "Directory",
             step="get_all_failed",
             requested_fields=sorted(fields),
             filters=filters,
+            error=str(exc),
         )
         return []
 
@@ -348,9 +339,7 @@ def get_employee_directory(
 def _resolve_employee_slack_identifier(employee: dict) -> str | None:
     """Return the Slack identifier derived from employee metadata.
 
-    Preference order: linked user ID, company email, personal email. When
-    multiple values are configured they must resolve to the same email (case
-    insensitive) to avoid ambiguity.
+    Preference order: linked user ID, company email, personal email.
     """
 
     user_id = _clean_identifier(employee.get("user_id"))
