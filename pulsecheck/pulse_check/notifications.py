@@ -31,11 +31,14 @@ __all__ = [
     "get_slack_recipients",
     "get_slack_token",
     "get_week_bounds",
+    "get_completed_week_bounds",
+    "get_employee_goals",
     "mark_executed",
     "notifications_enabled",
     "open_slack_modal",
     "post_to_slack",
     "should_run_now",
+    "resolve_slack_user_id",
 ]
 
 _WEEKDAY_TO_INDEX = {
@@ -409,6 +412,19 @@ def get_week_bounds(now: datetime | None = None, *, offset_weeks: int = 0) -> tu
     return start_of_week, end_of_week
 
 
+def get_completed_week_bounds(now: datetime | None = None) -> tuple[date, date]:
+    """Return the Sunday-Saturday window for the week that just completed."""
+
+    if now is None:
+        now = _now()
+
+    reference = (now - timedelta(days=1)).date()
+    days_since_sunday = (reference.weekday() + 1) % 7
+    start_of_week = reference - timedelta(days=days_since_sunday)
+    end_of_week = start_of_week + timedelta(days=6)
+    return start_of_week, end_of_week
+
+
 def post_to_slack(token: str, payload: dict) -> None:
     """Send a message payload to Slack's chat.postMessage API."""
 
@@ -505,6 +521,67 @@ def _lookup_slack_user_by_email(token: str, email: str) -> str | None:
         raise SlackDeliveryError(data.get("error") or "Unknown Slack API error")
 
     return (data.get("user") or {}).get("id")
+
+
+def resolve_slack_user_id(token: str, recipient: dict) -> str | None:
+    """Return a Slack member ID for ``recipient`` using stored identifiers or Slack lookups."""
+
+    candidates = [
+        _clean_identifier(recipient.get("slack_user_id")),
+        _clean_identifier(recipient.get("user_id")),
+        _clean_identifier(recipient.get("company_email")),
+        _clean_identifier(recipient.get("personal_email")),
+    ]
+
+    for candidate in candidates:
+        if candidate and candidate.startswith("U"):
+            return candidate
+
+    for candidate in candidates:
+        if not candidate or "@" not in candidate:
+            continue
+        try:
+            user_id = _lookup_slack_user_by_email(token, candidate)
+        except SlackDeliveryError as exc:
+            log_event(
+                "Slack Lookup",
+                step="lookup_failed",
+                email=candidate,
+                error=str(exc),
+            )
+            continue
+        if user_id:
+            return user_id
+
+    return None
+
+
+def get_employee_goals(employee_name: str, *, limit: int = 5) -> list[dict]:
+    """Fetch the most recent active goals for an employee."""
+
+    try:
+        goals = frappe.get_all(  # type: ignore[call-arg]
+            "Goal",
+            filters={
+                "employee": employee_name,
+                "is_group": 0,
+                "status": ["!=", "Archived"],
+            },
+            fields=["name", "goal_name", "status", "progress"],
+            order_by="modified desc",
+            limit_page_length=limit,
+            ignore_permissions=True,
+        )
+    except Exception as exc:  # pragma: no cover - logged for diagnostics
+        log_event(
+            "Goals",
+            step="fetch_failed",
+            employee=employee_name,
+            error=str(exc),
+        )
+        return []
+
+    return list(goals)
 
 
 def record_settings_timestamp(

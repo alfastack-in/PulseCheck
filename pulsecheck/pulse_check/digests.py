@@ -64,7 +64,7 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
         logger.warning("Slack bot token is missing; digest cannot be delivered.")
         return False
 
-    week_start, week_end = notifications.get_week_bounds(now, offset_weeks=-1)
+    week_start, week_end = notifications.get_completed_week_bounds(now)
     checkins = _fetch_weekly_checkins(week_start, week_end)
 
     if not checkins:

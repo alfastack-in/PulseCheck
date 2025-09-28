@@ -611,6 +611,48 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
     return {"ok": not error, "message": text}
 
 
+def _handle_block_action(payload: Dict[str, Any]) -> Dict[str, Any]:
+    actions = payload.get("actions") or []
+    if not actions:
+        raise SlackPayloadError("Slack action payload is empty.")
+
+    action = actions[0]
+    action_id = action.get("action_id")
+    if action_id != "pulsecheck_open_modal":
+        raise SlackPayloadError("Unsupported Slack action.")
+
+    metadata = {}
+    value = action.get("value")
+    if isinstance(value, str) and value:
+        metadata = _parse_private_metadata(value)
+
+    trigger_id = payload.get("trigger_id")
+    if not trigger_id:
+        raise SlackPayloadError("Slack trigger_id is missing from the request.")
+
+    settings = notifications.get_settings()
+    if not settings:
+        raise SlackPayloadError("PulseCheck Settings are unavailable. Please contact an administrator.")
+
+    token = notifications.get_slack_token(settings)
+    if not token:
+        raise SlackPayloadError("Slack bot token is missing. Configure it in PulseCheck Settings.")
+
+    employee = _resolve_employee(payload, metadata)
+    employee_details = _get_employee_details(employee)
+    goals = _fetch_employee_goals(employee)
+    initial_goal = metadata.get("goal") or metadata.get("value")
+
+    view = _build_checkin_modal(employee_details, goals, initial_goal=initial_goal)
+
+    try:
+        notifications.open_slack_modal(token, trigger_id, view)
+    except notifications.SlackDeliveryError as exc:
+        raise SlackPayloadError(str(exc)) from exc
+
+    return _ephemeral_response("Opening the Pulse Check modal…", interaction_type="interaction")
+
+
 def _enforce_system_manager() -> None:
     if frappe is None:  # pragma: no cover - runtime guard
         return
@@ -738,8 +780,13 @@ def handle_slack_interaction() -> Dict[str, Any]:
 
     try:
         payload = _load_payload()
-        if payload.get("type") != "view_submission":
-            raise SlackPayloadError("Only Slack modal submissions are supported.")
+        payload_type = payload.get("type")
+
+        if payload_type == "block_actions":
+            return _handle_block_action(payload)
+
+        if payload_type != "view_submission":
+            raise SlackPayloadError("Unsupported Slack interaction type.")
 
         view = payload.get("view", {})
         if not isinstance(view, dict):

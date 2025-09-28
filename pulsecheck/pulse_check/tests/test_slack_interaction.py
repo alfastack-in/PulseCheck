@@ -252,6 +252,40 @@ def test_open_checkin_modal_returns_error_when_token_missing(monkeypatch, fake_f
     assert "token" in response["text"].lower()
 
 
+def test_handle_block_action_opens_modal(monkeypatch, fake_frappe):
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U123"},
+        "trigger_id": "1337.block",
+        "actions": [
+            {
+                "action_id": "pulsecheck_open_modal",
+                "value": json.dumps({"employee": "EMP-0001", "goal": "GOAL-0001"}),
+            }
+        ],
+    }
+
+    fake_frappe.form_dict["payload"] = json.dumps(payload)
+
+    settings = SimpleNamespace(enable_weekly_prompts=1)
+
+    opened: dict[str, Any] | None = None
+
+    def _capture_modal(token, trigger_id, view):
+        nonlocal opened
+        opened = {"token": token, "trigger_id": trigger_id, "view": view}
+
+    monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
+    monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
+    monkeypatch.setattr(api.notifications, "open_slack_modal", _capture_modal)
+    monkeypatch.setattr(api, "_fetch_employee_goals", lambda _employee: [{"name": "GOAL-0001", "goal_name": "Grow pipeline"}])
+
+    response = api.handle_slack_interaction()
+
+    assert response["ok"] is True
+    assert opened
+    assert opened["trigger_id"] == "1337.block"
+    assert json.loads(opened["view"]["private_metadata"]) == {"employee": "EMP-0001"}
 def test_trigger_weekly_prompts_respects_force(monkeypatch, fake_frappe):
     fake_frappe.utils.now_datetime = lambda: datetime(2024, 1, 1, 10, 0)
 

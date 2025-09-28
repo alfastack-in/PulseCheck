@@ -163,10 +163,11 @@ def test_send_weekly_prompts_respects_window_with_timezone(monkeypatch):
     assert sent is True
     assert payloads
 
-    prior_week_start, prior_week_end = notifications.get_week_bounds(inside_window, offset_weeks=-1)
-    expected_range = f"{prior_week_start:%b %d} - {prior_week_end:%b %d}"
-    message = payloads[-1]["text"]
-    assert f"last week ({expected_range})" in message
+    week_start, week_end = notifications.get_completed_week_bounds(inside_window)
+    expected_range = f"{week_start:%b %d} - {week_end:%b %d}"
+    message = payloads[-1]
+    summary_block = message["blocks"][0]["text"]["text"]
+    assert expected_range in summary_block
 
 
 def test_should_run_now_handles_timezone_awareness():

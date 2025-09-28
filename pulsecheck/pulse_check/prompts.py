@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from . import notifications
@@ -68,7 +69,7 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
         logger.info("No Slack recipients were found; nothing to send.")
         return False
 
-    week_start, week_end = notifications.get_week_bounds(now, offset_weeks=-1)
+    week_start, week_end = notifications.get_completed_week_bounds(now)
     notifications.log_event(
         "Weekly Prompts",
         step="sending",
@@ -97,14 +98,17 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
             channel=channel,
         )
 
-        text = _compose_prompt(recipient.get("employee_name") or recipient.get("name"), week_start, week_end)
+        goals = notifications.get_employee_goals(recipient.get("name"))
+        message = _compose_prompt_message(
+            recipient,
+            week_start,
+            week_end,
+            goals,
+        )
         try:
             notifications.post_to_slack(
                 token,
-                {
-                    "channel": channel,
-                    "text": text,
-                },
+                message,
             )
         except notifications.SlackDeliveryError as exc:
             logger.exception("Failed to send prompt to %s: %s", channel, exc)
@@ -147,12 +151,84 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
     return bool(messages_sent)
 
 
-def _compose_prompt(employee_name: str | None, week_start, week_end) -> str:
-    friendly_name = employee_name or "there"
-    return (
-        f"Hi {friendly_name}! It's time for your weekly pulse check.\n"
-        f"Use `/pulsecheck` to submit your update for last week ({week_start:%b %d} - {week_end:%b %d})."
+def _compose_prompt_message(recipient: dict, week_start, week_end, goals: list[dict]) -> dict:
+    employee_name = recipient.get("employee_name") or recipient.get("name") or "there"
+    summary_text = (
+        f"Hi {employee_name}! It's time to share your pulse check for "
+        f"{week_start:%b %d} - {week_end:%b %d}."
     )
+
+    blocks: list[dict] = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": summary_text},
+        }
+    ]
+
+    if goals:
+        goal_lines = []
+        for goal in goals[:5]:
+            title = goal.get("goal_name") or goal.get("name")
+            status = goal.get("status")
+            progress = goal.get("progress")
+            fragments = [f"*{title}*"]
+            extra = []
+            if progress not in (None, ""):
+                try:
+                    extra.append(f"{int(float(progress))}%")
+                except (TypeError, ValueError):
+                    pass
+            if status:
+                extra.append(status)
+            if extra:
+                fragments.append(f"({' · '.join(extra)})")
+            goal_lines.append(" ".join(fragments))
+
+        if goal_lines:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Here are your current goals:\n" + "\n".join(f"• {line}" for line in goal_lines),
+                    },
+                }
+            )
+
+    action_elements = []
+    metadata_base = {"employee": recipient.get("name")}
+
+    if goals:
+        for goal in goals[:3]:
+            action_elements.append(
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"Update {goal.get('goal_name') or goal.get('name')}",
+                        "emoji": True,
+                    },
+                    "action_id": "pulsecheck_open_modal",
+                    "value": json.dumps({**metadata_base, "goal": goal.get("name")}),
+                }
+            )
+
+    action_elements.append(
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Open Check-in", "emoji": True},
+            "action_id": "pulsecheck_open_modal",
+            "value": json.dumps(metadata_base),
+        }
+    )
+
+    blocks.append({"type": "actions", "elements": action_elements})
+
+    return {
+        "channel": recipient.get("slack_user_id"),
+        "blocks": blocks,
+        "text": summary_text,
+    }
 
 
 def get_last_prompt_run() -> datetime | None:
