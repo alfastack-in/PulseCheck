@@ -187,8 +187,8 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     assert created_docs["submission"].progress == pytest.approx(72.0)
     assert updated_progress == {"goal": "GOAL-0001", "progress": pytest.approx(72.0)}
 
-    assert response["response_action"] == "clear"
-    assert fake_frappe.local.response["message"] == response
+    assert response["response_action"] == "update"
+    assert response["view"]["blocks"][0]["text"]["text"] == "All set!"
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):
@@ -202,7 +202,7 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
 
     assert response["response_action"] == "errors"
     assert "Employee" in response["errors"]["general"] or "employee" in response["errors"]["general"].lower()
-    assert fake_frappe.local.response.get("message") == response
+    assert fake_frappe.local.response.get("data") == response
 
 
 def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):

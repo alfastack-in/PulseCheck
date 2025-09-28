@@ -586,10 +586,23 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
 
 
 def _success_response(message: str) -> Dict[str, Any]:
-    payload = {"response_action": "clear"}
+    payload = {
+        "response_action": "update",
+        "view": {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Pulse Check"},
+            "close": {"type": "plain_text", "text": "Close"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": message},
+                }
+            ],
+        },
+    }
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response["data"] = payload  # type: ignore[attr-defined]
         frappe.local.response["http_status_code"] = 200  # type: ignore[attr-defined]
     return payload
 
@@ -602,7 +615,7 @@ def _error_response(message: str, *, field: str | None = None) -> Dict[str, Any]
     payload = {"response_action": "errors", "errors": errors}
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response["data"] = payload  # type: ignore[attr-defined]
         frappe.local.response["http_status_code"] = 200  # keep Slack happy
     return payload
 
@@ -620,7 +633,7 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
 
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response["data"] = payload  # type: ignore[attr-defined]
         frappe.local.response["http_status_code"] = 200  # type: ignore[attr-defined]
 
     return payload
