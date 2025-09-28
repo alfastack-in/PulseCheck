@@ -562,13 +562,21 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
 
     employee_title = frappe.db.get_value("Employee", employee_name, "employee_name") or employee_name  # type: ignore[attr-defined]
 
+    goal_title = goal_name
+    goal_meta = None
+    try:
+        goal_meta = frappe.get_meta("Goal")  # type: ignore[attr-defined]
+    except Exception:
+        goal_meta = None
+
     goal_title_fields = ["title", "subject", "goal_name", "name"]
-    goal_title = None
     for field in goal_title_fields:
-        goal_title = frappe.db.get_value("Goal", goal_name, field)  # type: ignore[attr-defined]
-        if goal_title:
+        if goal_meta and not goal_meta.has_field(field):
+            continue
+        value = frappe.db.get_value("Goal", goal_name, field)  # type: ignore[attr-defined]
+        if value:
+            goal_title = value
             break
-    goal_title = goal_title or goal_name
 
     return (
         f"Thanks, {employee_title}! Your weekly check-in for *{goal_title}* has been recorded "
