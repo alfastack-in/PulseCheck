@@ -100,7 +100,9 @@ def _basic_settings(**overrides) -> SimpleNamespace:
 
 def _enable_employee_directory():
     _TABLES.add("tabEmployee")
-    _COLUMNS.add(("Employee", "slack_user_id"))
+    _COLUMNS.add(("Employee", "user_id"))
+    _COLUMNS.add(("Employee", "company_email"))
+    _COLUMNS.add(("Employee", "personal_email"))
     _COLUMNS.add(("Employee", "reports_to"))
     _COLUMNS.add(("Employee", "leave_approver"))
 
@@ -128,7 +130,14 @@ def test_send_weekly_prompts_respects_window_with_timezone(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings()
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     payloads: list[dict] = []
 
@@ -169,7 +178,14 @@ def test_send_weekly_prompts_skips_when_disabled(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings(enable_weekly_prompts=0)
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     called = []
     monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: called.append((args, kwargs)))
@@ -183,7 +199,14 @@ def test_send_weekly_prompts_requires_token(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings(slack_bot_token="   ")
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     called = []
     monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: called.append((args, kwargs)))
@@ -197,7 +220,14 @@ def test_send_weekly_prompts_marks_execution(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings()
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: None)
 
@@ -212,7 +242,14 @@ def test_send_weekly_prompts_skips_outside_window_with_timezone(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings()
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     called = []
     monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: called.append((args, kwargs)))
@@ -226,7 +263,14 @@ def test_send_weekly_prompts_force_bypasses_checks(monkeypatch):
     global _FAKE_SETTINGS
     _FAKE_SETTINGS = _basic_settings()
     _enable_employee_directory()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     payloads: list[dict] = []
 
@@ -252,13 +296,26 @@ def test_send_weekly_digest_summarises_checkins(monkeypatch):
     _enable_checkins_table()
     _FAKE_EMPLOYEES.extend(
         [
-            {"name": "EMP-MGR", "employee_name": "Grace Manager", "slack_user_id": "UMGR"},
-            {"name": "EMP-ADA", "employee_name": "Ada Lovelace", "reports_to": "EMP-MGR"},
+            {
+                "name": "EMP-MGR",
+                "employee_name": "Grace Manager",
+                "user_id": "grace.manager@example.com",
+                "company_email": "grace.manager@example.com",
+            },
+            {
+                "name": "EMP-ADA",
+                "employee_name": "Ada Lovelace",
+                "reports_to": "EMP-MGR",
+                "user_id": "ada@example.com",
+                "company_email": "ada@example.com",
+            },
             {
                 "name": "EMP-BOB",
                 "employee_name": "Bob Babbage",
                 "reports_to": "EMP-MGR",
                 "leave_approver": "Grace Manager",
+                "user_id": "bob@example.com",
+                "company_email": "bob@example.com",
             },
         ]
     )
@@ -295,7 +352,7 @@ def test_send_weekly_digest_summarises_checkins(monkeypatch):
     assert sent is True
     assert len(payloads) == 1
     payload = payloads[0]
-    assert payload["channel"] == "UMGR"
+    assert payload["channel"] == "grace.manager@example.com"
     assert "Pulse Check digest" in payload["text"]
     assert "Ada Lovelace" in payload["text"]
     assert "Bob Babbage" in payload["text"]
@@ -310,8 +367,19 @@ def test_send_weekly_digest_respects_window_with_timezone(monkeypatch):
     _enable_checkins_table()
     _FAKE_EMPLOYEES.extend(
         [
-            {"name": "EMP-MGR", "employee_name": "Grace Manager", "slack_user_id": "UMGR"},
-            {"name": "EMP-ADA", "employee_name": "Ada Lovelace", "reports_to": "EMP-MGR"},
+            {
+                "name": "EMP-MGR",
+                "employee_name": "Grace Manager",
+                "user_id": "grace.manager@example.com",
+                "company_email": "grace.manager@example.com",
+            },
+            {
+                "name": "EMP-ADA",
+                "employee_name": "Ada Lovelace",
+                "reports_to": "EMP-MGR",
+                "user_id": "ada@example.com",
+                "company_email": "ada@example.com",
+            },
         ]
     )
     _FAKE_CHECKINS.append(
@@ -341,7 +409,7 @@ def test_send_weekly_digest_respects_window_with_timezone(monkeypatch):
     sent = digests.send_weekly_digest(now=inside_window)
     assert sent is True
     assert payloads
-    assert payloads[0]["channel"] == "UMGR"
+    assert payloads[0]["channel"] == "grace.manager@example.com"
 
 
 def test_send_weekly_digest_handles_missing_checkins(monkeypatch):
@@ -349,7 +417,14 @@ def test_send_weekly_digest_handles_missing_checkins(monkeypatch):
     _FAKE_SETTINGS = _basic_settings()
     _enable_employee_directory()
     _enable_checkins_table()
-    _FAKE_EMPLOYEES.append({"name": "EMP-ADA", "employee_name": "Ada", "slack_user_id": "U01"})
+    _FAKE_EMPLOYEES.append(
+        {
+            "name": "EMP-ADA",
+            "employee_name": "Ada",
+            "user_id": "ada@example.com",
+            "company_email": "ada@example.com",
+        }
+    )
 
     monkeypatch.setattr(notifications, "post_to_slack", lambda *args, **kwargs: None)
 
@@ -364,8 +439,19 @@ def test_send_weekly_digest_skips_outside_window_with_timezone(monkeypatch):
     _enable_checkins_table()
     _FAKE_EMPLOYEES.extend(
         [
-            {"name": "EMP-MGR", "employee_name": "Grace Manager", "slack_user_id": "UMGR"},
-            {"name": "EMP-ADA", "employee_name": "Ada Lovelace", "reports_to": "EMP-MGR"},
+            {
+                "name": "EMP-MGR",
+                "employee_name": "Grace Manager",
+                "user_id": "grace.manager@example.com",
+                "company_email": "grace.manager@example.com",
+            },
+            {
+                "name": "EMP-ADA",
+                "employee_name": "Ada Lovelace",
+                "reports_to": "EMP-MGR",
+                "user_id": "ada@example.com",
+                "company_email": "ada@example.com",
+            },
         ]
     )
     _FAKE_CHECKINS.append(
@@ -399,8 +485,19 @@ def test_send_weekly_digest_force_bypasses_checks(monkeypatch):
     _enable_checkins_table()
     _FAKE_EMPLOYEES.extend(
         [
-            {"name": "EMP-MGR", "employee_name": "Grace Manager", "slack_user_id": "UMGR"},
-            {"name": "EMP-ADA", "employee_name": "Ada Lovelace", "reports_to": "EMP-MGR"},
+            {
+                "name": "EMP-MGR",
+                "employee_name": "Grace Manager",
+                "user_id": "grace.manager@example.com",
+                "company_email": "grace.manager@example.com",
+            },
+            {
+                "name": "EMP-ADA",
+                "employee_name": "Ada Lovelace",
+                "reports_to": "EMP-MGR",
+                "user_id": "ada@example.com",
+                "company_email": "ada@example.com",
+            },
         ]
     )
     _FAKE_CHECKINS.append(

@@ -71,6 +71,7 @@ def fake_frappe(monkeypatch):
 
     fake_local = SimpleNamespace(flags=SimpleNamespace(), response={})
     fake_request = SimpleNamespace(data=None, method="POST")
+    fake_utils = SimpleNamespace(now_datetime=lambda: datetime(2024, 1, 1, 10, 0))
 
     fake_db.values[("Employee", "EMP-0001")] = {
         "name": "EMP-0001",
@@ -87,6 +88,12 @@ def fake_frappe(monkeypatch):
             return FakeDoc(name=second)
         return FakeDoc(name=arg)
 
+    def _whitelist(*_args, **_kwargs):
+        def _decorator(func):
+            return func
+
+        return _decorator
+
     fake = SimpleNamespace(
         db=fake_db,
         form_dict={},
@@ -95,6 +102,8 @@ def fake_frappe(monkeypatch):
         request=fake_request,
         get_doc=_fake_get_doc,
         only_for=lambda _roles: None,
+        whitelist=_whitelist,
+        utils=fake_utils,
     )
 
     monkeypatch.setattr(api, "frappe", fake)
@@ -181,6 +190,7 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
     payload = build_payload()
     payload["view"]["private_metadata"] = json.dumps({"goal": "GOAL-0001"})
     fake_frappe.db.values.pop(("Employee", "EMP-0001"), None)
+    fake_frappe.db.values.pop(("Employee", json.dumps({"slack_user_id": "U123"}, sort_keys=True)), None)
     fake_frappe.form_dict["payload"] = json.dumps(payload)
 
     response = api.handle_slack_interaction()

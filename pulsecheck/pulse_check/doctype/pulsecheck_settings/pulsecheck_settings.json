@@ -11,7 +11,11 @@
         "notification_setting_tab",
         "notification_day",
         "column_break_nbhd",
-        "notification_time"
+        "notification_time",
+        "status_section",
+        "last_prompt_run",
+        "column_break_status",
+        "last_digest_run"
     ],
     "fields": [
         {
@@ -54,6 +58,27 @@
             "fieldname": "notification_time",
             "fieldtype": "Time",
             "label": "Notification time"
+        },
+        {
+            "fieldname": "status_section",
+            "fieldtype": "Section Break",
+            "label": "Job Status"
+        },
+        {
+            "fieldname": "last_prompt_run",
+            "fieldtype": "Datetime",
+            "label": "Last Weekly Prompt Run",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_status",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "last_digest_run",
+            "fieldtype": "Datetime",
+            "label": "Last Weekly Digest Run",
+            "read_only": 1
         }
     ],
     "grid_page_length": 50,

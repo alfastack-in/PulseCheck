@@ -48,23 +48,32 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
     messages_sent = 0
 
     for recipient in recipients:
+        channel = recipient.get("slack_user_id")
+        if not channel:
+            continue
+
         text = _compose_prompt(recipient.get("employee_name") or recipient.get("name"), week_start, week_end)
         try:
             notifications.post_to_slack(
                 token,
                 {
-                    "channel": recipient.get("slack_user_id"),
+                    "channel": channel,
                     "text": text,
                 },
             )
         except notifications.SlackDeliveryError as exc:
-            logger.exception("Failed to send prompt to %s: %s", recipient.get("slack_user_id"), exc)
+            logger.exception("Failed to send prompt to %s: %s", channel, exc)
             continue
 
         messages_sent += 1
 
     if messages_sent:
         notifications.mark_executed(_CACHE_KEY, now=now)
+        notifications.record_settings_timestamp(
+            "last_prompt_run",
+            now=now,
+            settings=settings,
+        )
 
     return bool(messages_sent)
 
@@ -80,4 +89,7 @@ def _compose_prompt(employee_name: str | None, week_start, week_end) -> str:
 def get_last_prompt_run() -> datetime | None:
     """Return the cached datetime of the last successful prompts run."""
 
-    return notifications.get_last_execution(_CACHE_KEY)
+    cached = notifications.get_last_execution(_CACHE_KEY)
+    if cached:
+        return cached
+    return notifications.get_settings_timestamp("last_prompt_run")

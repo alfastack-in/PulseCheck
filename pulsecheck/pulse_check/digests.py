@@ -101,6 +101,11 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
 
     if messages_sent:
         notifications.mark_executed(_CACHE_KEY, now=now)
+        notifications.record_settings_timestamp(
+            "last_digest_run",
+            now=now,
+            settings=settings,
+        )
 
     if unassigned:
         logger.info(
@@ -167,6 +172,9 @@ def _build_employee_directory() -> tuple[dict[str, dict], dict[str, dict]]:
         name = employee.get("name")
         if not name:
             continue
+        identifier = notifications._resolve_employee_slack_identifier(employee)
+        if identifier:
+            employee["slack_user_id"] = identifier
         by_id[name] = employee
         display_key = _normalize(employee.get("employee_name") or name)
         if display_key and display_key not in by_display:
@@ -315,4 +323,7 @@ def _normalize(value: str | None) -> str:
 def get_last_digest_run() -> datetime | None:
     """Return the cached datetime of the last successful digest run."""
 
-    return notifications.get_last_execution(_CACHE_KEY)
+    cached = notifications.get_last_execution(_CACHE_KEY)
+    if cached:
+        return cached
+    return notifications.get_settings_timestamp("last_digest_run")

@@ -5,29 +5,24 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
+from types import SimpleNamespace
 
 from . import digests, notifications, prompts
+
+def _noop_whitelist(*_args, **_kwargs):
+    def _decorator(func):
+        return func
+
+    return _decorator
+
 
 try:  # pragma: no cover - frappe is only available in a bench environment
     import frappe  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover - fallback that allows unit tests to stub frappe
-    frappe = None  # type: ignore
-
-
-def _get_whitelist_decorator():
-    if frappe is None:
-        def _whitelist(*_args, **_kwargs):
-            def _decorator(func):
-                return func
-
-            return _decorator
-
-        return _whitelist
-
-    return frappe.whitelist  # type: ignore[return-value]
-
-
-_whitelist = _get_whitelist_decorator()
+    frappe = SimpleNamespace(whitelist=_noop_whitelist)  # type: ignore
+else:
+    if not getattr(frappe, "whitelist", None):  # type: ignore[attr-defined]
+        setattr(frappe, "whitelist", _noop_whitelist)
 
 
 class SlackPayloadError(Exception):
@@ -625,7 +620,7 @@ def _enforce_system_manager() -> None:
         only_for(("System Manager",))
 
 
-@_whitelist(allow_guest=True, methods=["POST"])
+@frappe.whitelist(allow_guest=True, methods=["POST"])
 def open_checkin_modal() -> Dict[str, Any]:
     """Slash command/shortcut entry point that opens the weekly check-in modal."""
 
@@ -686,7 +681,7 @@ def _match_initial_goal(command_text: str | None, goals: List[Dict[str, Any]]) -
     return None
 
 
-@_whitelist(methods=["POST"])
+@frappe.whitelist(methods=["POST"])
 def trigger_weekly_prompts(force: Any = True) -> Dict[str, Any]:
     """Manually trigger the weekly prompt job."""
 
@@ -700,7 +695,7 @@ def trigger_weekly_prompts(force: Any = True) -> Dict[str, Any]:
     return {"sent": bool(sent), "timestamp": now.isoformat()}
 
 
-@_whitelist(methods=["POST"])
+@frappe.whitelist(methods=["POST"])
 def trigger_weekly_digest(force: Any = True) -> Dict[str, Any]:
     """Manually trigger the weekly digest job."""
 
@@ -714,7 +709,7 @@ def trigger_weekly_digest(force: Any = True) -> Dict[str, Any]:
     return {"sent": bool(sent), "timestamp": now.isoformat()}
 
 
-@_whitelist()
+@frappe.whitelist()
 def get_job_status() -> Dict[str, Optional[str]]:
     """Return cached execution timestamps for scheduled jobs."""
 
@@ -732,7 +727,7 @@ def get_job_status() -> Dict[str, Optional[str]]:
     }
 
 
-@_whitelist(allow_guest=True, methods=["POST"])
+@frappe.whitelist(allow_guest=True, methods=["POST"])
 def handle_slack_interaction() -> Dict[str, Any]:
     """Webhook handler invoked by Slack interactive components."""
 

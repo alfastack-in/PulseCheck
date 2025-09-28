@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import frappe
 
@@ -20,6 +20,8 @@ __all__ = [
     "already_executed",
     "extract_schedule",
     "get_last_execution",
+    "get_settings_timestamp",
+    "record_settings_timestamp",
     "get_logger",
     "get_employee_directory",
     "get_settings",
@@ -42,6 +44,8 @@ _WEEKDAY_TO_INDEX = {
     "saturday": 5,
     "sunday": 6,
 }
+
+_EMPLOYEE_IDENTIFIER_FIELDS = ("user_id", "company_email", "personal_email")
 
 
 class _FallbackCache:
@@ -237,20 +241,25 @@ def _employee_has_field(field: str) -> bool:
     return False
 
 
-def _employee_has_slack_field() -> bool:
-    return _employee_has_field("slack_user_id")
-
-
 def get_slack_recipients() -> list[dict]:
-    """Return active employees that have a Slack user identifier configured."""
+    """Return active employees that can be contacted on Slack by user identifier.
 
-    directory = get_employee_directory(require_slack=True)
+    The implementation assumes Slack member identifiers match the employee's
+    linked Frappe user or their email address. This keeps provisioning simple for
+    teams that enforce matching emails across systems.
+    """
+
+    directory = get_employee_directory(
+        extra_fields=list(_EMPLOYEE_IDENTIFIER_FIELDS),
+        require_slack=True,
+    )
 
     recipients = []
     for employee in directory:
-        slack_id = (employee.get("slack_user_id") or "").strip()
+        slack_id = _resolve_employee_slack_identifier(employee)
         if not slack_id:
             continue
+
         recipients.append(
             {
                 "name": employee.get("name"),
@@ -267,8 +276,8 @@ def get_employee_directory(
 ) -> list[dict]:
     """Return active employees with optional extra fields.
 
-    When ``require_slack`` is True the result only includes employees that have a
-    ``slack_user_id`` configured.
+    When ``require_slack`` is True the result only includes employees that have an
+    email/user identifier suitable for Slack delivery.
     """
 
     if not _employee_table_exists():
@@ -276,17 +285,13 @@ def get_employee_directory(
 
     fields: set[str] = {"name", "employee_name"}
 
-    if require_slack:
-        if not _employee_has_slack_field():
-            return []
-        fields.add("slack_user_id")
-    elif _employee_has_slack_field():
-        fields.add("slack_user_id")
-
+    identifier_fields = list(_EMPLOYEE_IDENTIFIER_FIELDS)
     if extra_fields:
-        for field in extra_fields:
-            if _employee_has_field(field):
-                fields.add(field)
+        identifier_fields.extend(extra_fields)
+
+    for field in identifier_fields:
+        if _employee_has_field(field):
+            fields.add(field)
 
     try:
         employees = frappe.get_all(  # type: ignore[call-arg]
@@ -301,15 +306,60 @@ def get_employee_directory(
 
     cleaned: list[dict] = []
     for employee in employees:
-        entry = dict(employee)
-        if "slack_user_id" in entry:
-            entry["slack_user_id"] = (entry.get("slack_user_id") or "").strip()
-        cleaned.append(entry)
-
-    if require_slack:
-        cleaned = [entry for entry in cleaned if entry.get("slack_user_id")]
+        entry = {
+            key: (value.strip() if isinstance(value, str) else value)
+            for key, value in dict(employee).items()
+        }
+        if not require_slack or _resolve_employee_slack_identifier(entry):
+            cleaned.append(entry)
 
     return cleaned
+
+
+def _resolve_employee_slack_identifier(employee: dict) -> str | None:
+    """Return the Slack identifier derived from employee metadata.
+
+    Preference order: linked user ID, company email, personal email. When
+    multiple values are configured they must resolve to the same email (case
+    insensitive) to avoid ambiguity.
+    """
+
+    candidates: dict[str, str] = {}
+    for field in _EMPLOYEE_IDENTIFIER_FIELDS:
+        value = employee.get(field)
+        cleaned = _clean_identifier(value)
+        if cleaned:
+            candidates[field] = cleaned
+
+    if not candidates:
+        return None
+
+    normalized = {value.lower() for value in candidates.values()}
+    if len(normalized) > 1:
+        logger.warning(
+            "Skipping Employee %s because emails do not match (%s).",
+            employee.get("name") or employee.get("employee_name") or "Unknown",
+            ", ".join(sorted(candidates.values())),
+        )
+        return None
+
+    if "user_id" in candidates:
+        return candidates["user_id"]
+
+    if "company_email" in candidates:
+        return candidates["company_email"]
+
+    return next(iter(candidates.values()))
+
+
+def _clean_identifier(value) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+    else:
+        cleaned = str(value).strip()
+    return cleaned or None
 
 
 def get_week_bounds(now: datetime | None = None, *, offset_weeks: int = 0) -> tuple[date, date]:
@@ -388,6 +438,61 @@ def _call_slack_api(token: str, method: str, payload: dict) -> None:
 
     if not data.get("ok"):
         raise SlackDeliveryError(data.get("error") or "Unknown Slack API error")
+
+
+def record_settings_timestamp(
+    fieldname: str,
+    *,
+    now: datetime | None = None,
+    settings=None,
+) -> None:
+    """Persist the provided timestamp on the PulseCheck Settings DocType.
+
+    The field is expected to be a read-only Datetime field. Failures are logged
+    but otherwise ignored so job execution is never blocked by metadata
+    mismatch.
+    """
+
+    if now is None:
+        now = _now()
+
+    target_settings = settings or get_settings()
+    if not target_settings or not hasattr(target_settings, "db_set"):
+        return
+
+    timestamp = _normalise_datetime(now)
+
+    try:
+        target_settings.db_set(fieldname, timestamp)
+    except Exception:
+        logger.warning("Unable to store %s on PulseCheck Settings.", fieldname, exc_info=True)
+
+
+def _normalise_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def get_settings_timestamp(fieldname: str) -> datetime | None:
+    """Fetch a stored timestamp from the PulseCheck Settings DocType."""
+
+    settings = get_settings()
+    if not settings:
+        return None
+
+    return _coerce_datetime(getattr(settings, fieldname, None))
+
+
+def _coerce_datetime(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def get_last_execution(cache_key: str) -> datetime | None:
