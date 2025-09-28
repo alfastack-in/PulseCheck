@@ -48,6 +48,9 @@ def fake_frappe(monkeypatch):
         def exists(self, doctype, name):
             return (doctype, str(name)) in self.values
 
+        def commit(self):
+            return None
+
     fake_db = _FakeDB()
 
     class FakeDoc:
@@ -184,7 +187,7 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     assert updated_progress == {"goal": "GOAL-0001", "progress": pytest.approx(72.0)}
 
     assert response["response_action"] == "clear"
-    assert response["messages"][0]["text"]["text"] == "All set!"
+    assert fake_frappe.response["message"] == response
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):

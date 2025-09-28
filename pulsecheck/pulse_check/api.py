@@ -577,18 +577,7 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
 
 
 def _success_response(message: str) -> Dict[str, Any]:
-    payload = {
-        "response_action": "clear",
-        "messages": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": message,
-                },
-            }
-        ],
-    }
+    payload = {"response_action": "clear"}
     if frappe is not None:
         frappe.response["type"] = "json"  # type: ignore[attr-defined]
         frappe.response["message"] = payload  # type: ignore[attr-defined]
@@ -614,7 +603,7 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
     if interaction_type == "command":
         payload = {"response_type": "ephemeral", "text": text}
     else:
-        payload = {"response_action": "clear", "message": text}
+        payload = {"response_action": "clear"}
 
     if frappe is not None:
         frappe.response["type"] = "json"  # type: ignore[attr-defined]
@@ -826,6 +815,14 @@ def handle_slack_interaction() -> Dict[str, Any]:
             _update_goal_progress(checkin_doc.goal, submission.progress)
 
         message = _build_confirmation_message(employee, checkin_doc.goal, submission.progress or 0)
+        if frappe is not None:
+            frappe.db.commit()  # type: ignore[attr-defined]
+        notifications.log_event(
+            "Slack Interaction",
+            step="submitted",
+            employee=employee,
+            goal=checkin_doc.goal,
+        )
         return _success_response(message)
     except SlackPayloadError as exc:
         if frappe is not None:
