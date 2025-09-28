@@ -81,7 +81,19 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
     for recipient in recipients:
         channel = recipient.get("slack_user_id")
         if not channel:
+            notifications.log_event(
+                "Weekly Prompts",
+                step="missing_channel",
+                recipient=recipient.get("name"),
+            )
             continue
+
+        notifications.log_event(
+            "Weekly Prompts",
+            step="sending_recipient",
+            recipient=recipient.get("name"),
+            channel=channel,
+        )
 
         text = _compose_prompt(recipient.get("employee_name") or recipient.get("name"), week_start, week_end)
         try:
@@ -94,9 +106,22 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
             )
         except notifications.SlackDeliveryError as exc:
             logger.exception("Failed to send prompt to %s: %s", channel, exc)
+            notifications.log_event(
+                "Weekly Prompts",
+                step="slack_error",
+                recipient=recipient.get("name"),
+                channel=channel,
+                error=str(exc),
+            )
             continue
 
         messages_sent += 1
+        notifications.log_event(
+            "Weekly Prompts",
+            step="sent",
+            recipient=recipient.get("name"),
+            channel=channel,
+        )
 
     if messages_sent:
         notifications.mark_executed(_CACHE_KEY, now=now)
@@ -112,7 +137,10 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
             cache_key=_CACHE_KEY,
         )
     else:
-        notifications.log_event("Weekly Prompts", step="nothing_sent")
+        notifications.log_event(
+            "Weekly Prompts",
+            step="nothing_sent",
+        )
 
     return bool(messages_sent)
 

@@ -113,7 +113,19 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
             continue
         slack_id = (manager.get("slack_user_id") or "").strip()
         if not slack_id:
+            notifications.log_event(
+                "Weekly Digest",
+                step="missing_channel",
+                manager=manager_name,
+            )
             continue
+
+        notifications.log_event(
+            "Weekly Digest",
+            step="sending_manager",
+            manager=manager_name,
+            channel=slack_id,
+        )
 
         digest_message = _compose_manager_digest(
             manager,
@@ -134,9 +146,22 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
             )
         except notifications.SlackDeliveryError as exc:
             logger.exception("Failed to send digest to %s: %s", slack_id, exc)
+            notifications.log_event(
+                "Weekly Digest",
+                step="slack_error",
+                manager=manager_name,
+                channel=slack_id,
+                error=str(exc),
+            )
             continue
 
         messages_sent += 1
+        notifications.log_event(
+            "Weekly Digest",
+            step="sent",
+            manager=manager_name,
+            channel=slack_id,
+        )
 
     if messages_sent:
         notifications.mark_executed(_CACHE_KEY, now=now)
