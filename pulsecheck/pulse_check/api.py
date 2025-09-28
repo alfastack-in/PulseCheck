@@ -503,7 +503,7 @@ def _truncate_text(value: str, max_length: int) -> str:
     return value[: max_length - 1] + "…"
 
 
-def _create_weekly_checkin(employee: str, submission: Submission) -> Any:
+def _create_weekly_checkin(employee: str, submission: Submission, *, posting_date=None) -> Any:
     if frappe is None:  # pragma: no cover - runtime guard
         raise RuntimeError("Frappe must be installed to create Weekly Checkins.")
 
@@ -528,6 +528,7 @@ def _create_weekly_checkin(employee: str, submission: Submission) -> Any:
             "context": submission.context,
             "blockers": submission.blockers,
             "next_week_plan": submission.next_week_plan,
+            "posting_date": posting_date,
         }
     )
     doc.insert(ignore_permissions=True)
@@ -589,7 +590,7 @@ def _success_response(message: str) -> Dict[str, Any]:
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
         frappe.local.response["message"] = payload  # type: ignore[attr-defined]
-        frappe.local.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+        frappe.local.response["http_status_code"] = 200  # type: ignore[attr-defined]
     return payload
 
 
@@ -616,7 +617,7 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
         frappe.local.response["message"] = payload  # type: ignore[attr-defined]
-        frappe.local.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+        frappe.local.response["http_status_code"] = 200  # type: ignore[attr-defined]
 
     return payload
 
@@ -854,7 +855,7 @@ def handle_slack_interaction() -> Dict[str, Any]:
                 "A check-in for this goal has already been submitted this week."
             )
 
-        checkin_doc = _create_weekly_checkin(employee, submission)
+        checkin_doc = _create_weekly_checkin(employee, submission, posting_date=week_end)
         if submission.progress is not None:
             _update_goal_progress(checkin_doc.goal, submission.progress)
 
@@ -866,6 +867,7 @@ def handle_slack_interaction() -> Dict[str, Any]:
             step="submitted",
             employee=employee,
             goal=checkin_doc.goal,
+            response="success",
         )
         return _success_response(message)
     except SlackPayloadError as exc:

@@ -165,7 +165,7 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
 
     created_docs = {}
 
-    def _capture_checkin(employee, submission):
+    def _capture_checkin(employee, submission, **kwargs):
         created_docs["employee"] = employee
         created_docs["submission"] = submission
         return SimpleNamespace(goal=submission.goal)

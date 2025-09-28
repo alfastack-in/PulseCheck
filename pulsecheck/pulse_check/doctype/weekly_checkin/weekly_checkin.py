@@ -14,7 +14,8 @@ class WeeklyCheckin(Document):
 
     def before_submit(self):
         """Stamp the posting date just before submission."""
-        self.posting_date = frappe.utils.today()
+        if not self.posting_date:
+            self.posting_date = frappe.utils.today()
 
     def _validate_progress_range(self):
         """Ensure progress related values stay within a 0-100 range."""
