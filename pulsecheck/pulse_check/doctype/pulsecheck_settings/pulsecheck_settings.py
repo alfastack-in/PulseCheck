@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class PulsecheckSettings(Document):
+class PulseCheckSettings(Document):
 	pass
