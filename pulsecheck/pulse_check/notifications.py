@@ -22,6 +22,7 @@ __all__ = [
     "get_last_execution",
     "get_settings_timestamp",
     "record_settings_timestamp",
+    "log_event",
     "get_logger",
     "get_employee_directory",
     "get_settings",
@@ -80,6 +81,22 @@ def get_logger(name: str) -> logging.Logger:
 
 
 logger = get_logger("pulsecheck.notifications")
+
+
+def log_event(event: str, **details) -> None:
+    """Emit structured debug information via ``frappe.log_error`` for diagnostics."""
+
+    payload = {"event": event, **details}
+
+    try:
+        message = json.dumps(payload, default=str, sort_keys=True)
+    except TypeError:
+        message = repr(payload)
+
+    try:
+        frappe.log_error(message=message, title=f"PulseCheck {event}")  # type: ignore[attr-defined]
+    except Exception:
+        logger.info("PulseCheck %s | %s", event, message)
 
 
 def _now() -> datetime:

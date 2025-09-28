@@ -21,30 +21,61 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
 
     settings = notifications.get_settings()
     if not settings:
+        notifications.log_event(
+            "Weekly Prompts",
+            step="missing_settings",
+            force=force,
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         logger.warning("Skipping weekly prompts because PulseCheck Settings are unavailable.")
         return False
 
     if not force and not notifications.notifications_enabled(settings):
+        notifications.log_event(
+            "Weekly Prompts",
+            step="disabled",
+            enable_weekly_prompts=getattr(settings, "enable_weekly_prompts", None),
+        )
         logger.info("Weekly prompts are disabled in PulseCheck Settings; skipping run.")
         return False
 
     if not force and not notifications.should_run_now(settings, now=now):
+        notifications.log_event(
+            "Weekly Prompts",
+            step="outside_window",
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         return False
 
     if not force and notifications.already_executed(_CACHE_KEY, now=now):
+        notifications.log_event(
+            "Weekly Prompts",
+            step="already_executed",
+            cache_key=_CACHE_KEY,
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         return False
 
     token = notifications.get_slack_token(settings)
     if not token:
+        notifications.log_event("Weekly Prompts", step="missing_token")
         logger.warning("Slack bot token is missing; prompts cannot be delivered.")
         return False
 
     recipients = notifications.get_slack_recipients()
     if not recipients:
+        notifications.log_event("Weekly Prompts", step="no_recipients")
         logger.info("No Slack recipients were found; nothing to send.")
         return False
 
     week_start, week_end = notifications.get_week_bounds(now, offset_weeks=-1)
+    notifications.log_event(
+        "Weekly Prompts",
+        step="sending",
+        recipient_count=len(recipients),
+        week_start=str(week_start),
+        week_end=str(week_end),
+    )
     messages_sent = 0
 
     for recipient in recipients:
@@ -74,6 +105,14 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
             now=now,
             settings=settings,
         )
+        notifications.log_event(
+            "Weekly Prompts",
+            step="completed",
+            messages_sent=messages_sent,
+            cache_key=_CACHE_KEY,
+        )
+    else:
+        notifications.log_event("Weekly Prompts", step="nothing_sent")
 
     return bool(messages_sent)
 

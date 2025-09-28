@@ -23,21 +23,44 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
 
     settings = notifications.get_settings()
     if not settings:
+        notifications.log_event(
+            "Weekly Digest",
+            step="missing_settings",
+            force=force,
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         logger.warning("Skipping weekly digest because PulseCheck Settings are unavailable.")
         return False
 
     if not force and not notifications.notifications_enabled(settings):
+        notifications.log_event(
+            "Weekly Digest",
+            step="disabled",
+            enable_weekly_prompts=getattr(settings, "enable_weekly_prompts", None),
+        )
         logger.info("Weekly digests are disabled in PulseCheck Settings; skipping run.")
         return False
 
     if not force and not notifications.should_run_now(settings, now=now):
+        notifications.log_event(
+            "Weekly Digest",
+            step="outside_window",
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         return False
 
     if not force and notifications.already_executed(_CACHE_KEY, now=now):
+        notifications.log_event(
+            "Weekly Digest",
+            step="already_executed",
+            cache_key=_CACHE_KEY,
+            now=now.isoformat() if isinstance(now, datetime) else None,
+        )
         return False
 
     token = notifications.get_slack_token(settings)
     if not token:
+        notifications.log_event("Weekly Digest", step="missing_token")
         logger.warning("Slack bot token is missing; digest cannot be delivered.")
         return False
 
@@ -45,6 +68,12 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
     checkins = _fetch_weekly_checkins(week_start, week_end)
 
     if not checkins:
+        notifications.log_event(
+            "Weekly Digest",
+            step="no_checkins",
+            week_start=str(week_start),
+            week_end=str(week_end),
+        )
         logger.info(
             "No Weekly Check-in submissions found for the %s - %s window; skipping digest.",
             week_start,
@@ -54,6 +83,7 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
 
     employees_by_id, employees_by_display = _build_employee_directory()
     if not employees_by_id:
+        notifications.log_event("Weekly Digest", step="no_employee_directory")
         logger.info("No employees with manager relationships were found; skipping digest.")
         return False
 
@@ -61,9 +91,18 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
         checkins, employees_by_id, employees_by_display
     )
     if not manager_map:
+        notifications.log_event("Weekly Digest", step="no_managers")
         logger.info("No managers with Slack identifiers were found for digest delivery.")
         return False
 
+    notifications.log_event(
+        "Weekly Digest",
+        step="sending",
+        manager_count=len(manager_map),
+        unassigned=len(unassigned),
+        week_start=str(week_start),
+        week_end=str(week_end),
+    )
     messages_sent = 0
     for manager_name in sorted(
         manager_map,
@@ -106,6 +145,15 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
             now=now,
             settings=settings,
         )
+        notifications.log_event(
+            "Weekly Digest",
+            step="completed",
+            messages_sent=messages_sent,
+            cache_key=_CACHE_KEY,
+            unassigned=len(unassigned),
+        )
+    else:
+        notifications.log_event("Weekly Digest", step="nothing_sent")
 
     if unassigned:
         logger.info(
