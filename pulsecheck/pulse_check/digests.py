@@ -111,14 +111,16 @@ def send_weekly_digest(now: datetime | None = None, *, force: bool = False) -> b
         manager = employees_by_id.get(manager_name)
         if not manager:
             continue
-        slack_id = (manager.get("slack_user_id") or "").strip()
+        slack_id = notifications.resolve_slack_user_id(token, manager)
         if not slack_id:
             notifications.log_event(
                 "Weekly Digest",
-                step="missing_channel",
+                step="lookup_failed",
                 manager=manager_name,
             )
             continue
+
+        manager["slack_user_id"] = slack_id
 
         notifications.log_event(
             "Weekly Digest",

@@ -83,6 +83,13 @@ def _reset_state():
 def _prepare_environment(monkeypatch):
     _reset_state()
     monkeypatch.setattr(fake_frappe.utils, "now_datetime", lambda: datetime(2024, 1, 1, 10, 0))
+    monkeypatch.setattr(
+        notifications,
+        "resolve_slack_user_id",
+        lambda token, recipient: recipient.get("slack_user_id")
+        or recipient.get("user_id")
+        or "U-FAKE",
+    )
     yield
     _reset_state()
 

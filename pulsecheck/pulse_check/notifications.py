@@ -11,9 +11,11 @@ import frappe
 try:  # pragma: no cover - urllib is always available, but the import is guarded for clarity
     from urllib import error as urllib_error
     from urllib import request as urllib_request
+    from urllib import parse as urllib_parse
 except ImportError:  # pragma: no cover
     urllib_request = None
     urllib_error = None
+    urllib_parse = None
 
 __all__ = [
     "SlackDeliveryError",
@@ -260,6 +262,9 @@ def get_slack_recipients() -> list[dict]:
                 "name": employee.get("name"),
                 "employee_name": employee.get("employee_name") or employee.get("name"),
                 "slack_user_id": slack_id,
+                "user_id": employee.get("user_id"),
+                "company_email": employee.get("company_email"),
+                "personal_email": employee.get("personal_email"),
             }
         )
 
@@ -337,19 +342,47 @@ def get_employee_directory(
 
 
 def _resolve_employee_slack_identifier(employee: dict) -> str | None:
-    """Return the Slack identifier derived from employee metadata.
+    """Return the stored identifier that might map to a Slack user."""
 
-    Preference order: linked user ID, company email, personal email.
-    """
-
-    user_id = _clean_identifier(employee.get("user_id"))
-    if user_id:
-        return user_id
-
-    for field in ("company_email", "personal_email"):
+    for field in _EMPLOYEE_IDENTIFIER_FIELDS:
         value = _clean_identifier(employee.get(field))
         if value:
             return value
+
+    return None
+
+
+def resolve_slack_user_id(token: str, recipient: dict) -> str | None:
+    """Ensure the recipient has a Slack member ID, performing lookup by email when needed."""
+
+    candidates = [
+        _clean_identifier(recipient.get("slack_user_id")),
+        _clean_identifier(recipient.get("user_id")),
+        _clean_identifier(recipient.get("company_email")),
+        _clean_identifier(recipient.get("personal_email")),
+    ]
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if candidate.startswith("U"):
+            return candidate
+
+    for candidate in candidates:
+        if not candidate or "@" not in candidate:
+            continue
+        try:
+            user_id = _lookup_slack_user_by_email(token, candidate)
+        except SlackDeliveryError as exc:
+            log_event(
+                "Slack Lookup",
+                step="lookup_failed",
+                email=candidate,
+                error=str(exc),
+            )
+            continue
+        if user_id:
+            return user_id
 
     return None
 
@@ -440,6 +473,38 @@ def _call_slack_api(token: str, method: str, payload: dict) -> None:
 
     if not data.get("ok"):
         raise SlackDeliveryError(data.get("error") or "Unknown Slack API error")
+
+
+def _lookup_slack_user_by_email(token: str, email: str) -> str | None:
+    """Return the Slack user ID for the provided email, if available."""
+
+    if urllib_request is None or urllib_error is None or urllib_parse is None:  # pragma: no cover
+        raise SlackDeliveryError("The urllib library is not available in this environment.")
+
+    query = urllib_parse.urlencode({"email": email})
+    request = urllib_request.Request(
+        f"https://slack.com/api/users.lookupByEmail?{query}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+
+    try:
+        with urllib_request.urlopen(request, timeout=10) as response:
+            raw_body = response.read()
+    except urllib_error.URLError as exc:  # pragma: no cover
+        raise SlackDeliveryError(str(exc)) from exc
+
+    try:
+        data = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
+    except json.JSONDecodeError:
+        data = {"ok": False, "error": raw_body.decode("utf-8", errors="ignore")}
+
+    if not data.get("ok"):
+        if data.get("error") == "users_not_found":
+            return None
+        raise SlackDeliveryError(data.get("error") or "Unknown Slack API error")
+
+    return (data.get("user") or {}).get("id")
 
 
 def record_settings_timestamp(

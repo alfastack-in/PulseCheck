@@ -79,14 +79,16 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
     messages_sent = 0
 
     for recipient in recipients:
-        channel = recipient.get("slack_user_id")
+        channel = notifications.resolve_slack_user_id(token, recipient)
         if not channel:
             notifications.log_event(
                 "Weekly Prompts",
-                step="missing_channel",
+                step="lookup_failed",
                 recipient=recipient.get("name"),
             )
             continue
+
+        recipient["slack_user_id"] = channel
 
         notifications.log_event(
             "Weekly Prompts",
