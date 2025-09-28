@@ -37,6 +37,7 @@ __all__ = [
     "notifications_enabled",
     "open_slack_modal",
     "post_to_slack",
+    "update_slack_view",
     "should_run_now",
     "resolve_slack_user_id",
 ]
@@ -442,6 +443,22 @@ def open_slack_modal(token: str, trigger_id: str, view: dict) -> None:
         "views.open",
         {
             "trigger_id": trigger_id,
+            "view": view,
+        },
+    )
+
+
+def update_slack_view(token: str, view_id: str, view: dict) -> None:
+    """Update an existing Slack modal view."""
+
+    if not view_id:
+        raise SlackDeliveryError("Slack view_id is required to update a modal.")
+
+    _call_slack_api(
+        token,
+        "views.update",
+        {
+            "view_id": view_id,
             "view": view,
         },
     )

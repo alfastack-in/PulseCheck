@@ -51,6 +51,9 @@ def fake_frappe(monkeypatch):
         def commit(self):
             return None
 
+        def rollback(self):
+            return None
+
     fake_db = _FakeDB()
 
     class FakeDoc:
@@ -97,6 +100,13 @@ def fake_frappe(monkeypatch):
 
         return _decorator
 
+    enqueued: list[tuple[str, Dict[str, Any]]] = []
+
+    def _fake_enqueue(method, **kwargs):
+        enqueued.append((method, kwargs))
+        if method == "pulsecheck.pulse_check.api._process_view_submission":
+            api._process_view_submission(payload=kwargs.get("payload", {}))
+
     fake = SimpleNamespace(
         db=fake_db,
         form_dict={},
@@ -109,6 +119,8 @@ def fake_frappe(monkeypatch):
         utils=fake_utils,
         response={},
         get_all=lambda *args, **kwargs: [],
+        enqueue=_fake_enqueue,
+        enqueued=enqueued,
     )
 
     monkeypatch.setattr(api, "frappe", fake)
@@ -122,6 +134,7 @@ def build_payload(**overrides):
         "type": "view_submission",
         "user": {"id": "U123"},
         "view": {
+            "id": "VIEW-123",
             "private_metadata": json.dumps({"employee": "EMP-0001", "goal": "GOAL-0001"}),
             "state": {
                 "values": {
@@ -181,6 +194,13 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     monkeypatch.setattr(api, "_update_goal_progress", _capture_goal_update)
     monkeypatch.setattr(api, "_build_confirmation_message", lambda *args: "All set!")
 
+    updates: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(api.notifications, "update_slack_view", lambda token, view_id, view: updates.append((token, view_id, view)))
+
+    settings = SimpleNamespace(enable_weekly_prompts=1)
+    monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
+    monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
+
     response = api.handle_slack_interaction()
 
     assert created_docs["employee"] == "EMP-0001"
@@ -188,7 +208,14 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     assert updated_progress == {"goal": "GOAL-0001", "progress": pytest.approx(72.0)}
 
     assert response["response_action"] == "update"
-    assert response["view"]["blocks"][0]["text"]["text"] == "All set!"
+    assert ":hourglass_flowing_sand:" in response["view"]["blocks"][0]["text"]["text"]
+
+    assert fake_frappe.enqueued
+    method, kwargs = fake_frappe.enqueued[-1]
+    assert method == "pulsecheck.pulse_check.api._process_view_submission"
+    assert updates
+    final_view = updates[-1][2]
+    assert ":white_check_mark:" in final_view["blocks"][0]["text"]["text"]
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):
@@ -198,11 +225,19 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
     fake_frappe.db.values.pop(("Employee", json.dumps({"slack_user_id": "U123"}, sort_keys=True)), None)
     fake_frappe.form_dict["payload"] = json.dumps(payload)
 
+    updates: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(api.notifications, "update_slack_view", lambda token, view_id, view: updates.append((token, view_id, view)))
+    settings = SimpleNamespace(enable_weekly_prompts=1)
+    monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
+    monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
+
     response = api.handle_slack_interaction()
 
-    assert response["response_action"] == "errors"
-    assert "Employee" in response["errors"]["general"] or "employee" in response["errors"]["general"].lower()
-    assert fake_frappe.local.response.get("data") == response
+    assert response["response_action"] == "update"
+    assert fake_frappe.enqueued
+    assert updates
+    error_view = updates[-1][2]
+    assert ":warning:" in error_view["blocks"][0]["text"]["text"]
 
 
 def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):
