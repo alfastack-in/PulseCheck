@@ -105,6 +105,12 @@ def send_weekly_prompts(now: datetime | None = None, *, force: bool = False) -> 
             week_end,
             goals,
         )
+        notifications.log_event(
+            "Weekly Prompts",
+            step="payload_preview",
+            recipient=recipient.get("name"),
+            payload=message,
+        )
         try:
             notifications.post_to_slack(
                 token,
@@ -199,7 +205,7 @@ def _compose_prompt_message(recipient: dict, week_start, week_end, goals: list[d
     metadata_base = {"employee": recipient.get("name")}
 
     if goals:
-        for goal in goals[:3]:
+        for index, goal in enumerate(goals[:3]):
             action_elements.append(
                 {
                     "type": "button",
@@ -208,7 +214,7 @@ def _compose_prompt_message(recipient: dict, week_start, week_end, goals: list[d
                         "text": f"Update {goal.get('goal_name') or goal.get('name')}",
                         "emoji": True,
                     },
-                    "action_id": "pulsecheck_open_modal",
+                    "action_id": f"pulsecheck_open_modal_{index}",
                     "value": json.dumps({**metadata_base, "goal": goal.get("name")}),
                 }
             )

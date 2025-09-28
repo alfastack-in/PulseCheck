@@ -259,7 +259,7 @@ def test_handle_block_action_opens_modal(monkeypatch, fake_frappe):
         "trigger_id": "1337.block",
         "actions": [
             {
-                "action_id": "pulsecheck_open_modal",
+                "action_id": "pulsecheck_open_modal_0",
                 "value": json.dumps({"employee": "EMP-0001", "goal": "GOAL-0001"}),
             }
         ],

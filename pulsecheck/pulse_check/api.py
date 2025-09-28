@@ -618,7 +618,7 @@ def _handle_block_action(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     action = actions[0]
     action_id = action.get("action_id")
-    if action_id != "pulsecheck_open_modal":
+    if not action_id or not action_id.startswith("pulsecheck_open_modal"):
         raise SlackPayloadError("Unsupported Slack action.")
 
     metadata = {}
