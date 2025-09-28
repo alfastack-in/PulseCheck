@@ -247,17 +247,6 @@ def _employee_table_exists() -> bool:
     return False
 
 
-def _employee_has_field(field: str) -> bool:
-    db = getattr(frappe, "db", None)
-    has_column = getattr(db, "has_column", None)
-    if callable(has_column):
-        try:
-            return bool(has_column("tabEmployee", field))
-        except Exception:  # pragma: no cover - rely on fallback
-            return False
-    return False
-
-
 def get_slack_recipients() -> list[dict]:
     """Return active employees that can be contacted on Slack by user identifier.
 
@@ -293,32 +282,46 @@ def get_employee_directory(
 ) -> list[dict]:
     """Return active employees with optional extra fields.
 
-    When ``require_slack`` is True the result only includes employees that have an
-    email/user identifier suitable for Slack delivery.
+    When ``require_slack`` is True the result only includes employees that have a
+    linked User ID, which we treat as the Slack recipient identifier.
     """
 
     if not _employee_table_exists():
+        log_event("Directory", step="missing_employee_table")
         return []
 
-    fields: set[str] = {"name", "employee_name"}
+    try:
+        meta = frappe.get_meta("Employee")  # type: ignore[attr-defined]
+        available_fields = {df.fieldname for df in getattr(meta, "fields", [])}
+    except Exception:
+        available_fields = set()
 
-    identifier_fields = list(_EMPLOYEE_IDENTIFIER_FIELDS)
+    fields: set[str] = {"name", "employee_name", "user_id"}
+
     if extra_fields:
-        identifier_fields.extend(extra_fields)
+        for field in extra_fields:
+            if field in available_fields or field in {"reports_to", "leave_approver"}:
+                fields.add(field)
 
-    for field in identifier_fields:
-        if _employee_has_field(field):
-            fields.add(field)
+    filters = {"status": "Active"}
+    if require_slack:
+        filters["user_id"] = ["!=", ""]
 
     try:
         employees = frappe.get_all(  # type: ignore[call-arg]
             "Employee",
-            filters={"status": "Active"},
+            filters=filters,
             fields=sorted(fields),
             order_by="employee_name asc",
         )
-    except Exception:  # pragma: no cover - frappe provides richer errors
+    except Exception:
         logger.warning("Unable to load Employee directory for Slack notifications.")
+        log_event(
+            "Directory",
+            step="get_all_failed",
+            requested_fields=sorted(fields),
+            filters=filters,
+        )
         return []
 
     cleaned: list[dict] = []
@@ -327,8 +330,17 @@ def get_employee_directory(
             key: (value.strip() if isinstance(value, str) else value)
             for key, value in dict(employee).items()
         }
-        if not require_slack or _resolve_employee_slack_identifier(entry):
+        if not require_slack or entry.get("user_id"):
             cleaned.append(entry)
+
+    log_event(
+        "Directory",
+        step="loaded",
+        requested_fields=sorted(fields),
+        total=len(employees),
+        included=len(cleaned),
+        require_slack=require_slack,
+    )
 
     return cleaned
 
@@ -341,32 +353,16 @@ def _resolve_employee_slack_identifier(employee: dict) -> str | None:
     insensitive) to avoid ambiguity.
     """
 
-    candidates: dict[str, str] = {}
-    for field in _EMPLOYEE_IDENTIFIER_FIELDS:
-        value = employee.get(field)
-        cleaned = _clean_identifier(value)
-        if cleaned:
-            candidates[field] = cleaned
+    user_id = _clean_identifier(employee.get("user_id"))
+    if user_id:
+        return user_id
 
-    if not candidates:
-        return None
+    for field in ("company_email", "personal_email"):
+        value = _clean_identifier(employee.get(field))
+        if value:
+            return value
 
-    normalized = {value.lower() for value in candidates.values()}
-    if len(normalized) > 1:
-        logger.warning(
-            "Skipping Employee %s because emails do not match (%s).",
-            employee.get("name") or employee.get("employee_name") or "Unknown",
-            ", ".join(sorted(candidates.values())),
-        )
-        return None
-
-    if "user_id" in candidates:
-        return candidates["user_id"]
-
-    if "company_email" in candidates:
-        return candidates["company_email"]
-
-    return next(iter(candidates.values()))
+    return None
 
 
 def _clean_identifier(value) -> str | None:
