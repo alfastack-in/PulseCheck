@@ -594,8 +594,12 @@ def _success_response(message: str) -> Dict[str, Any]:
     return payload
 
 
-def _error_response(message: str) -> Dict[str, Any]:
-    payload = {"response_action": "errors", "errors": {"general": message}}
+def _error_response(message: str, *, field: str | None = None) -> Dict[str, Any]:
+    if field:
+        errors = {field: message}
+    else:
+        errors = {"general": message}
+    payload = {"response_action": "errors", "errors": errors}
     if frappe is not None:
         frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
         frappe.local.response["message"] = payload  # type: ignore[attr-defined]
@@ -852,7 +856,8 @@ def handle_slack_interaction() -> Dict[str, Any]:
                 existing=existing[0],
             )
             return _error_response(
-                "A check-in for this goal has already been submitted this week."
+                "You already submitted a check-in for this goal this week.",
+                field="goal_block",
             )
 
         checkin_doc = _create_weekly_checkin(employee, submission, posting_date=week_end)
