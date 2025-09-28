@@ -108,6 +108,7 @@ def fake_frappe(monkeypatch):
         whitelist=_whitelist,
         utils=fake_utils,
         response={},
+        get_all=lambda *args, **kwargs: [],
     )
 
     monkeypatch.setattr(api, "frappe", fake)
@@ -187,7 +188,7 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     assert updated_progress == {"goal": "GOAL-0001", "progress": pytest.approx(72.0)}
 
     assert response["response_action"] == "clear"
-    assert fake_frappe.response["message"] == response
+    assert fake_frappe.local.response["message"] == response
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):
@@ -201,7 +202,7 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
 
     assert response["response_action"] == "errors"
     assert "Employee" in response["errors"]["general"] or "employee" in response["errors"]["general"].lower()
-    assert fake_frappe.response.get("message") == response
+    assert fake_frappe.local.response.get("message") == response
 
 
 def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):

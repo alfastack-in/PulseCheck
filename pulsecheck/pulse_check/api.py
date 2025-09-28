@@ -587,18 +587,18 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
 def _success_response(message: str) -> Dict[str, Any]:
     payload = {"response_action": "clear"}
     if frappe is not None:
-        frappe.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.response["message"] = payload  # type: ignore[attr-defined]
-        frappe.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+        frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response.pop("http_status_code", None)  # type: ignore[attr-defined]
     return payload
 
 
 def _error_response(message: str) -> Dict[str, Any]:
     payload = {"response_action": "errors", "errors": {"general": message}}
     if frappe is not None:
-        frappe.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.response["message"] = payload  # type: ignore[attr-defined]
-        frappe.response["http_status_code"] = 200  # keep Slack happy
+        frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response["http_status_code"] = 200  # keep Slack happy
     return payload
 
 
@@ -614,9 +614,9 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
         payload = {"response_action": "clear"}
 
     if frappe is not None:
-        frappe.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.response["message"] = payload  # type: ignore[attr-defined]
-        frappe.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+        frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.local.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.local.response.pop("http_status_code", None)  # type: ignore[attr-defined]
 
     return payload
 
@@ -825,6 +825,34 @@ def handle_slack_interaction() -> Dict[str, Any]:
             employee=employee,
             goal=submission.goal,
         )
+
+        if frappe is None:
+            raise RuntimeError("Frappe must be installed to store Weekly Checkins.")
+
+        now = frappe.utils.now_datetime()  # type: ignore[attr-defined]
+        week_start, week_end = notifications.get_completed_week_bounds(now)
+        existing = frappe.get_all(  # type: ignore[call-arg]
+            "Weekly Checkin",
+            filters={
+                "employee": employee,
+                "goal": submission.goal,
+                "docstatus": 1,
+                "posting_date": ["between", [str(week_start), str(week_end)]],
+            },
+            limit=1,
+            pluck="name",
+        )
+        if existing:
+            notifications.log_event(
+                "Slack Interaction",
+                step="duplicate",
+                employee=employee,
+                goal=submission.goal,
+                existing=existing[0],
+            )
+            return _error_response(
+                "A check-in for this goal has already been submitted this week."
+            )
 
         checkin_doc = _create_weekly_checkin(employee, submission)
         if submission.progress is not None:
