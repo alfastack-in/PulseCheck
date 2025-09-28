@@ -252,7 +252,7 @@ def _employee_has_field(field: str) -> bool:
     has_column = getattr(db, "has_column", None)
     if callable(has_column):
         try:
-            return bool(has_column("Employee", field))
+            return bool(has_column("tabEmployee", field))
         except Exception:  # pragma: no cover - rely on fallback
             return False
     return False
