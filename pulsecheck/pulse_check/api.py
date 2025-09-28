@@ -807,8 +807,16 @@ def handle_slack_interaction() -> Dict[str, Any]:
             raise SlackPayloadError("Slack modal submission payload is malformed.")
 
         metadata = _parse_private_metadata(view.get("private_metadata"))
+        notifications.log_event("Slack Interaction", step="metadata", metadata=metadata)
         employee = _resolve_employee(payload, metadata)
+        notifications.log_event("Slack Interaction", step="employee_resolved", employee=employee)
         submission = _extract_submission(view)
+        notifications.log_event(
+            "Slack Interaction",
+            step="submission_extracted",
+            employee=employee,
+            goal=submission.goal,
+        )
 
         checkin_doc = _create_weekly_checkin(employee, submission)
         if submission.progress is not None:
@@ -825,6 +833,11 @@ def handle_slack_interaction() -> Dict[str, Any]:
         )
         return _success_response(message)
     except SlackPayloadError as exc:
+        notifications.log_event(
+            "Slack Interaction",
+            step="error",
+            message=str(exc),
+        )
         if frappe is not None:
             frappe.log_error(message=str(exc), title="PulseCheck Slack Interaction")  # type: ignore[attr-defined]
         return _error_response(str(exc))
