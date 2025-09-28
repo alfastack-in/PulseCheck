@@ -882,6 +882,7 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
     token: Optional[str] = None
     view = payload.get("view") or {}
     view_id = view.get("id") if isinstance(view, dict) else None
+    view_hash = view.get("hash") if isinstance(view, dict) else None
 
     try:
         settings = notifications.get_settings()
@@ -934,6 +935,7 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
                     token,
                     view_id,
                     _build_error_modal("You already submitted a check-in for this goal this week."),
+                    view_hash=view_hash,
                 )
             return
 
@@ -945,7 +947,12 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
 
         message = _build_confirmation_message(employee, checkin_doc.goal, submission.progress or 0)
         if token and view_id:
-            notifications.update_slack_view(token, view_id, _build_success_modal(message))
+            notifications.update_slack_view(
+                token,
+                view_id,
+                _build_success_modal(message),
+                view_hash=view_hash,
+            )
         notifications.log_event(
             "Slack Interaction",
             step="submitted_async",
@@ -962,7 +969,12 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
         )
         if token and view_id:
             try:
-                notifications.update_slack_view(token, view_id, _build_error_modal(str(exc)))
+                notifications.update_slack_view(
+                    token,
+                    view_id,
+                    _build_error_modal(str(exc)),
+                    view_hash=view_hash,
+                )
             except notifications.SlackDeliveryError as update_err:
                 notifications.log_event(
                     "Slack Interaction",
@@ -983,6 +995,7 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
                     token,
                     view_id,
                     _build_error_modal("We couldn’t record your pulse check. Please try again."),
+                    view_hash=view_hash,
                 )
             except notifications.SlackDeliveryError as update_err:
                 notifications.log_event(

@@ -135,6 +135,7 @@ def build_payload(**overrides):
         "user": {"id": "U123"},
         "view": {
             "id": "VIEW-123",
+            "hash": "HASH-001",
             "private_metadata": json.dumps({"employee": "EMP-0001", "goal": "GOAL-0001"}),
             "state": {
                 "values": {
@@ -195,7 +196,11 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     monkeypatch.setattr(api, "_build_confirmation_message", lambda *args: "All set!")
 
     updates: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(api.notifications, "update_slack_view", lambda token, view_id, view: updates.append((token, view_id, view)))
+    monkeypatch.setattr(
+        api.notifications,
+        "update_slack_view",
+        lambda token, view_id, view, view_hash=None: updates.append((token, view_id, view, view_hash)),
+    )
 
     settings = SimpleNamespace(enable_weekly_prompts=1)
     monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
@@ -216,6 +221,7 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     assert updates
     final_view = updates[-1][2]
     assert ":white_check_mark:" in final_view["blocks"][0]["text"]["text"]
+    assert updates[-1][3] == "HASH-001"
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):
@@ -226,7 +232,11 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
     fake_frappe.form_dict["payload"] = json.dumps(payload)
 
     updates: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(api.notifications, "update_slack_view", lambda token, view_id, view: updates.append((token, view_id, view)))
+    monkeypatch.setattr(
+        api.notifications,
+        "update_slack_view",
+        lambda token, view_id, view, view_hash=None: updates.append((token, view_id, view, view_hash)),
+    )
     settings = SimpleNamespace(enable_weekly_prompts=1)
     monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
     monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
