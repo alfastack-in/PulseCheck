@@ -104,6 +104,7 @@ def fake_frappe(monkeypatch):
         only_for=lambda _roles: None,
         whitelist=_whitelist,
         utils=fake_utils,
+        response={},
     )
 
     monkeypatch.setattr(api, "frappe", fake)
@@ -197,7 +198,7 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
 
     assert response["response_action"] == "errors"
     assert "Employee" in response["errors"]["general"] or "employee" in response["errors"]["general"].lower()
-    assert fake_frappe.local.response["http_status_code"] == 400
+    assert fake_frappe.response.get("message") == response
 
 
 def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):
@@ -282,7 +283,7 @@ def test_handle_block_action_opens_modal(monkeypatch, fake_frappe):
 
     response = api.handle_slack_interaction()
 
-    assert response["ok"] is True
+    assert response["response_action"] == "clear"
     assert opened
     assert opened["trigger_id"] == "1337.block"
     assert json.loads(opened["view"]["private_metadata"]) == {"employee": "EMP-0001"}

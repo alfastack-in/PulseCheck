@@ -577,7 +577,7 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
 
 
 def _success_response(message: str) -> Dict[str, Any]:
-    return {
+    payload = {
         "response_action": "clear",
         "messages": [
             {
@@ -589,15 +589,20 @@ def _success_response(message: str) -> Dict[str, Any]:
             }
         ],
     }
+    if frappe is not None:
+        frappe.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+    return payload
 
 
 def _error_response(message: str) -> Dict[str, Any]:
+    payload = {"response_action": "errors", "errors": {"general": message}}
     if frappe is not None:
-        frappe.local.response["http_status_code"] = 400  # type: ignore[attr-defined]
-    return {
-        "response_action": "errors",
-        "errors": {"general": message},
-    }
+        frappe.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.response["http_status_code"] = 200  # keep Slack happy
+    return payload
 
 
 def _ephemeral_response(message: str, *, error: bool = False, interaction_type: str = "command") -> Dict[str, Any]:
@@ -605,10 +610,18 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
     if error and not text.startswith(":warning:"):
         text = f":warning: {text}"
 
+    payload: Dict[str, Any]
     if interaction_type == "command":
-        return {"response_type": "ephemeral", "text": text}
+        payload = {"response_type": "ephemeral", "text": text}
+    else:
+        payload = {"response_action": "clear", "message": text}
 
-    return {"ok": not error, "message": text}
+    if frappe is not None:
+        frappe.response["type"] = "json"  # type: ignore[attr-defined]
+        frappe.response["message"] = payload  # type: ignore[attr-defined]
+        frappe.response.pop("http_status_code", None)  # type: ignore[attr-defined]
+
+    return payload
 
 
 def _handle_block_action(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -649,6 +662,13 @@ def _handle_block_action(payload: Dict[str, Any]) -> Dict[str, Any]:
         notifications.open_slack_modal(token, trigger_id, view)
     except notifications.SlackDeliveryError as exc:
         raise SlackPayloadError(str(exc)) from exc
+
+    notifications.log_event(
+        "Slack Interaction",
+        step="modal_opened",
+        employee=employee,
+        action_id=action_id,
+    )
 
     return _ephemeral_response("Opening the Pulse Check modal…", interaction_type="interaction")
 
@@ -780,6 +800,11 @@ def handle_slack_interaction() -> Dict[str, Any]:
 
     try:
         payload = _load_payload()
+        notifications.log_event(
+            "Slack Interaction",
+            step="received",
+            payload_type=payload.get("type"),
+        )
         payload_type = payload.get("type")
 
         if payload_type == "block_actions":
