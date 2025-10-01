@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["hrms"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -166,6 +166,15 @@ app_license = "mit"
 # 	],
 # }
 
+scheduler_events = {
+	"cron": {
+		"*/15 * * * *": [
+			"pulsecheck.pulse_check.prompts.enqueue_weekly_prompts",
+			"pulsecheck.pulse_check.digests.enqueue_weekly_digest",
+		]
+	}
+}
+
 # Testing
 # -------
 
@@ -177,6 +186,14 @@ app_license = "mit"
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "pulsecheck.event.get_events"
 # }
+override_whitelisted_methods = {
+    "pulsecheck.pulse_check.api.handle_slack_interaction": "pulsecheck.pulse_check.api.handle_slack_interaction",
+}
+
+ignore_csrf = [
+    "pulsecheck.pulse_check.api.handle_slack_interaction",
+    "pulsecheck.pulse_check.api.open_checkin_modal",
+]
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -241,4 +258,3 @@ app_license = "mit"
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-

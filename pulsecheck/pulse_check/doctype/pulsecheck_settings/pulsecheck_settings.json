@@ -1,0 +1,109 @@
+{
+    "actions": [],
+    "creation": "2025-09-27 16:40:54.858698",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "general_tab",
+        "enable_weekly_prompts",
+        "slack_setting_tab",
+        "slack_bot_token",
+        "notification_setting_tab",
+        "notification_day",
+        "column_break_nbhd",
+        "notification_time",
+        "status_section",
+        "last_prompt_run",
+        "column_break_status",
+        "last_digest_run"
+    ],
+    "fields": [
+        {
+            "fieldname": "general_tab",
+            "fieldtype": "Tab Break",
+            "label": "General"
+        },
+        {
+            "default": "0",
+            "fieldname": "enable_weekly_prompts",
+            "fieldtype": "Check",
+            "label": "Enable Weekly Prompts"
+        },
+        {
+            "fieldname": "slack_setting_tab",
+            "fieldtype": "Tab Break",
+            "label": "Slack Setting"
+        },
+        {
+            "fieldname": "slack_bot_token",
+            "fieldtype": "Password",
+            "label": "Slack Bot Token"
+        },
+        {
+            "fieldname": "notification_setting_tab",
+            "fieldtype": "Tab Break",
+            "label": "Notification Setting"
+        },
+        {
+            "fieldname": "notification_day",
+            "fieldtype": "Select",
+            "label": "Notification Day",
+            "options": "Monday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday"
+        },
+        {
+            "fieldname": "column_break_nbhd",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "notification_time",
+            "fieldtype": "Time",
+            "label": "Notification time"
+        },
+        {
+            "fieldname": "status_section",
+            "fieldtype": "Section Break",
+            "label": "Job Status"
+        },
+        {
+            "fieldname": "last_prompt_run",
+            "fieldtype": "Datetime",
+            "label": "Last Weekly Prompt Run",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_status",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "last_digest_run",
+            "fieldtype": "Datetime",
+            "label": "Last Weekly Digest Run",
+            "read_only": 1
+        }
+    ],
+    "grid_page_length": 50,
+    "index_web_pages_for_search": 1,
+    "issingle": 1,
+    "links": [],
+    "modified": "2025-09-27 16:46:38.019696",
+    "modified_by": "Administrator",
+    "module": "Pulse Check",
+    "name": "PulseCheck Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "row_format": "Dynamic",
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+}

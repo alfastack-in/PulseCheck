@@ -36,6 +36,35 @@ This app can use GitHub Actions for CI. The following workflows are configured:
 - Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
 
 
+### Verifying Slack Jobs
+
+After configuring the *PulseCheck Settings* doctype with your preferred schedule, the scheduler entries can be exercised manually with Bench:
+
+```bash
+bench --site <your-site> execute pulsecheck.pulse_check.prompts.enqueue_weekly_prompts
+bench --site <your-site> execute pulsecheck.pulse_check.digests.enqueue_weekly_digest
+```
+
+Both commands honour the enable flag, scheduled weekday, notification time, and Slack bot token. They exit gracefully without sending messages when any of the prerequisites are missing.
+
+### Slack Slash Command
+
+Configure a Slack slash command (for example `/pulsecheck`) that points to the whitelisted endpoint:
+
+```
+https://<your-site>/api/method/pulsecheck.pulse_check.api.open_checkin_modal
+```
+
+Users with a mapped `slack_user_id` in the **Employee** DocType will receive a modal that guides them through submitting their weekly check-in.
+
+### Admin Utilities
+
+From the **PulseCheck Settings** form, System Managers can:
+
+- Trigger weekly prompts or digests immediately (bypassing the time window) to validate the configuration.
+- View the most recent execution time for both jobs directly on the dashboard.
+
+
 ### License
 
 mit
