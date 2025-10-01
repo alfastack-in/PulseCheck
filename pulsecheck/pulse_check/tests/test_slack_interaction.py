@@ -100,13 +100,6 @@ def fake_frappe(monkeypatch):
 
         return _decorator
 
-    enqueued: list[tuple[str, Dict[str, Any]]] = []
-
-    def _fake_enqueue(method, **kwargs):
-        enqueued.append((method, kwargs))
-        if method == "pulsecheck.pulse_check.api._process_view_submission":
-            api._process_view_submission(payload=kwargs.get("payload", {}))
-
     fake = SimpleNamespace(
         db=fake_db,
         form_dict={},
@@ -119,8 +112,6 @@ def fake_frappe(monkeypatch):
         utils=fake_utils,
         response={},
         get_all=lambda *args, **kwargs: [],
-        enqueue=_fake_enqueue,
-        enqueued=enqueued,
     )
 
     monkeypatch.setattr(api, "frappe", fake)
@@ -173,6 +164,19 @@ def build_payload(**overrides):
     return payload
 
 
+def extract_response_payload(response: Any) -> Dict[str, Any]:
+    if isinstance(response, dict):
+        return response
+
+    if hasattr(response, "get_data"):
+        raw = response.get_data(as_text=True)
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+    raise AssertionError(f"Unsupported response type: {type(response)!r}")
+
+
 def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     payload = build_payload()
     fake_frappe.form_dict["payload"] = json.dumps(payload)
@@ -195,33 +199,18 @@ def test_handle_slack_interaction_processes_modal(monkeypatch, fake_frappe):
     monkeypatch.setattr(api, "_update_goal_progress", _capture_goal_update)
     monkeypatch.setattr(api, "_build_confirmation_message", lambda *args: "All set!")
 
-    updates: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(
-        api.notifications,
-        "update_slack_view",
-        lambda token, view_id, view, view_hash=None: updates.append((token, view_id, view, view_hash)),
-    )
-
     settings = SimpleNamespace(enable_weekly_prompts=1)
     monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
     monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
 
-    response = api.handle_slack_interaction()
+    response = extract_response_payload(api.handle_slack_interaction())
 
     assert created_docs["employee"] == "EMP-0001"
     assert created_docs["submission"].progress == pytest.approx(72.0)
     assert updated_progress == {"goal": "GOAL-0001", "progress": pytest.approx(72.0)}
 
     assert response["response_action"] == "update"
-    assert ":hourglass_flowing_sand:" in response["view"]["blocks"][0]["text"]["text"]
-
-    assert fake_frappe.enqueued
-    method, kwargs = fake_frappe.enqueued[-1]
-    assert method == "pulsecheck.pulse_check.api._process_view_submission"
-    assert updates
-    final_view = updates[-1][2]
-    assert ":white_check_mark:" in final_view["blocks"][0]["text"]["text"]
-    assert updates[-1][3] == "HASH-001"
+    assert ":white_check_mark:" in response["view"]["blocks"][0]["text"]["text"]
 
 
 def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch, fake_frappe):
@@ -231,23 +220,14 @@ def test_handle_slack_interaction_returns_error_for_missing_employee(monkeypatch
     fake_frappe.db.values.pop(("Employee", json.dumps({"slack_user_id": "U123"}, sort_keys=True)), None)
     fake_frappe.form_dict["payload"] = json.dumps(payload)
 
-    updates: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(
-        api.notifications,
-        "update_slack_view",
-        lambda token, view_id, view, view_hash=None: updates.append((token, view_id, view, view_hash)),
-    )
     settings = SimpleNamespace(enable_weekly_prompts=1)
     monkeypatch.setattr(api.notifications, "get_settings", lambda: settings)
     monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: "xoxb-test")
 
-    response = api.handle_slack_interaction()
+    response = extract_response_payload(api.handle_slack_interaction())
 
     assert response["response_action"] == "update"
-    assert fake_frappe.enqueued
-    assert updates
-    error_view = updates[-1][2]
-    assert ":warning:" in error_view["blocks"][0]["text"]["text"]
+    assert ":warning:" in response["view"]["blocks"][0]["text"]["text"]
 
 
 def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):
@@ -270,7 +250,7 @@ def test_open_checkin_modal_launches_view(monkeypatch, fake_frappe):
     monkeypatch.setattr(api.notifications, "open_slack_modal", lambda token, trigger, view: payloads.append({"token": token, "trigger": trigger, "view": view}))
     monkeypatch.setattr(api, "_fetch_employee_goals", lambda _employee: [{"name": "GOAL-0001", "goal_name": "Grow pipeline"}])
 
-    response = api.open_checkin_modal()
+    response = extract_response_payload(api.open_checkin_modal())
 
     assert response["response_type"] == "ephemeral"
     assert payloads
@@ -296,7 +276,7 @@ def test_open_checkin_modal_returns_error_when_token_missing(monkeypatch, fake_f
     monkeypatch.setattr(api.notifications, "get_slack_token", lambda _settings: None)
     monkeypatch.setattr(api, "_fetch_employee_goals", lambda _employee: [])
 
-    response = api.open_checkin_modal()
+    response = extract_response_payload(api.open_checkin_modal())
 
     assert response["response_type"] == "ephemeral"
     assert "token" in response["text"].lower()
@@ -330,7 +310,7 @@ def test_handle_block_action_opens_modal(monkeypatch, fake_frappe):
     monkeypatch.setattr(api.notifications, "open_slack_modal", _capture_modal)
     monkeypatch.setattr(api, "_fetch_employee_goals", lambda _employee: [{"name": "GOAL-0001", "goal_name": "Grow pipeline"}])
 
-    response = api.handle_slack_interaction()
+    response = extract_response_payload(api.handle_slack_interaction())
 
     assert response["response_action"] == "clear"
     assert opened

@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
+
+try:  # pragma: no cover - runtime fallback for environments without werkzeug
+    from werkzeug.wrappers import Response as WerkzeugResponse
+except ModuleNotFoundError:  # pragma: no cover - tests may stub this
+    WerkzeugResponse = None  # type: ignore[assignment]
 from types import SimpleNamespace
 
 from . import digests, notifications, prompts
@@ -585,23 +590,6 @@ def _build_confirmation_message(employee_name: str, goal_name: str, progress: fl
     )
 
 
-def _build_processing_modal() -> Dict[str, Any]:
-    return {
-        "type": "modal",
-        "title": {"type": "plain_text", "text": "Pulse Check"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": ":hourglass_flowing_sand: Submitting your pulse check…",
-                },
-            }
-        ],
-    }
-
-
 def _build_success_modal(message: str) -> Dict[str, Any]:
     return {
         "type": "modal",
@@ -630,15 +618,18 @@ def _build_error_modal(message: str) -> Dict[str, Any]:
     }
 
 
-def _send_response(payload: Dict[str, Any]) -> Dict[str, Any]:
-    if frappe is not None:
-        frappe.local.response["type"] = "json"  # type: ignore[attr-defined]
-        frappe.local.response["data"] = payload  # type: ignore[attr-defined]
-        frappe.local.response["http_status_code"] = 200  # type: ignore[attr-defined]
+def _send_response(payload: Dict[str, Any]) -> Any:
+    if frappe is not None and getattr(frappe, "local", None) is not None and WerkzeugResponse is not None:
+        frappe.local.response = payload  # type: ignore[attr-defined]
+        return WerkzeugResponse(
+            json.dumps(payload),
+            status=200,
+            content_type="application/json",
+        )
     return payload
 
 
-def _error_response(message: str, *, field: str | None = None) -> Dict[str, Any]:
+def _error_response(message: str, *, field: str | None = None) -> Any:
     if field:
         errors = {field: message}
     else:
@@ -647,7 +638,7 @@ def _error_response(message: str, *, field: str | None = None) -> Dict[str, Any]
     return _send_response(payload)
 
 
-def _ephemeral_response(message: str, *, error: bool = False, interaction_type: str = "command") -> Dict[str, Any]:
+def _ephemeral_response(message: str, *, error: bool = False, interaction_type: str = "command") -> Any:
     text = message
     if error and not text.startswith(":warning:"):
         text = f":warning: {text}"
@@ -660,7 +651,7 @@ def _ephemeral_response(message: str, *, error: bool = False, interaction_type: 
     return _send_response(payload)
 
 
-def _handle_block_action(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_block_action(payload: Dict[str, Any]) -> Any:
     actions = payload.get("actions") or []
     if not actions:
         raise SlackPayloadError("Slack action payload is empty.")
@@ -719,7 +710,7 @@ def _enforce_system_manager() -> None:
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def open_checkin_modal() -> Dict[str, Any]:
+def open_checkin_modal() -> Any:
     """Slash command/shortcut entry point that opens the weekly check-in modal."""
 
     if frappe is None:  # pragma: no cover - runtime guard
@@ -826,7 +817,7 @@ def get_job_status() -> Dict[str, Optional[str]]:
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def handle_slack_interaction() -> Dict[str, Any]:
+def handle_slack_interaction() -> Any:
     """Webhook handler invoked by Slack interactive components."""
 
     if frappe is None:  # pragma: no cover - runtime guard
@@ -849,67 +840,24 @@ def handle_slack_interaction() -> Dict[str, Any]:
         if not isinstance(view, dict):
             raise SlackPayloadError("Slack modal submission payload is malformed.")
 
-        ack = {
-            "response_action": "update",
-            "view": _build_processing_modal(),
-        }
-
-        # Ensure the payload is serializable before enqueueing
-        payload_for_job = json.loads(json.dumps(payload))
-
-        frappe.enqueue(
-            "pulsecheck.pulse_check.api._process_view_submission",
-            queue="default",
-            timeout=300,
-            payload=payload_for_job,
-        )
-
-        return _send_response(ack)
-    except SlackPayloadError as exc:
-        notifications.log_event(
-            "Slack Interaction",
-            step="error",
-            message=str(exc),
-        )
-        if frappe is not None:
-            frappe.log_error(message=str(exc), title="PulseCheck Slack Interaction")  # type: ignore[attr-defined]
-        return _error_response(str(exc))
-
-
-def _process_view_submission(payload: Dict[str, Any]) -> None:
-    """Background job that records the Weekly Checkin and updates the Slack modal."""
-
-    token: Optional[str] = None
-    view = payload.get("view") or {}
-    view_id = view.get("id") if isinstance(view, dict) else None
-    view_hash = view.get("hash") if isinstance(view, dict) else None
-
-    try:
-        settings = notifications.get_settings()
-        if not settings:
-            raise SlackPayloadError("PulseCheck Settings are unavailable. Please contact an administrator.")
-
-        token = notifications.get_slack_token(settings)
-        if not token:
-            raise SlackPayloadError("Slack bot token is missing. Configure it in PulseCheck Settings.")
-
-        metadata = _parse_private_metadata(view.get("private_metadata")) if isinstance(view, dict) else {}
-        notifications.log_event("Slack Interaction", step="metadata_async", metadata=metadata)
-
+        metadata = _parse_private_metadata(view.get("private_metadata"))
+        notifications.log_event("Slack Interaction", step="metadata", metadata=metadata)
         employee = _resolve_employee(payload, metadata)
-        notifications.log_event("Slack Interaction", step="employee_resolved_async", employee=employee)
-
+        notifications.log_event("Slack Interaction", step="employee_resolved", employee=employee)
         submission = _extract_submission(view)
         notifications.log_event(
             "Slack Interaction",
-            step="submission_extracted_async",
+            step="submission_extracted",
             employee=employee,
             goal=submission.goal,
         )
 
+        settings = notifications.get_settings()
+        if not settings:
+            raise SlackPayloadError("PulseCheck Settings are unavailable. Please contact an administrator.")
+
         now = frappe.utils.now_datetime()  # type: ignore[attr-defined]
         week_start, week_end = notifications.get_completed_week_bounds(now)
-
         existing = frappe.get_all(  # type: ignore[call-arg]
             "Weekly Checkin",
             filters={
@@ -921,23 +869,20 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
             limit=1,
             pluck="name",
         )
-
         if existing:
             notifications.log_event(
                 "Slack Interaction",
-                step="duplicate_async",
+                step="duplicate",
                 employee=employee,
                 goal=submission.goal,
                 existing=existing[0],
             )
-            if token and view_id:
-                notifications.update_slack_view(
-                    token,
-                    view_id,
-                    _build_error_modal("You already submitted a check-in for this goal this week."),
-                    view_hash=view_hash,
-                )
-            return
+            return _send_response(
+                {
+                    "response_action": "update",
+                    "view": _build_error_modal("You already submitted a check-in for this goal this week."),
+                }
+            )
 
         checkin_doc = _create_weekly_checkin(employee, submission, posting_date=week_end)
         if submission.progress is not None:
@@ -946,61 +891,29 @@ def _process_view_submission(payload: Dict[str, Any]) -> None:
         frappe.db.commit()  # type: ignore[attr-defined]
 
         message = _build_confirmation_message(employee, checkin_doc.goal, submission.progress or 0)
-        if token and view_id:
-            notifications.update_slack_view(
-                token,
-                view_id,
-                _build_success_modal(message),
-                view_hash=view_hash,
-            )
         notifications.log_event(
             "Slack Interaction",
-            step="submitted_async",
+            step="submitted",
             employee=employee,
             goal=checkin_doc.goal,
         )
+        return _send_response(
+            {
+                "response_action": "update",
+                "view": _build_success_modal(message),
+            }
+        )
     except SlackPayloadError as exc:
-        if frappe is not None:
-            frappe.db.rollback()  # type: ignore[attr-defined]
         notifications.log_event(
             "Slack Interaction",
-            step="error_async",
+            step="error",
             message=str(exc),
         )
-        if token and view_id:
-            try:
-                notifications.update_slack_view(
-                    token,
-                    view_id,
-                    _build_error_modal(str(exc)),
-                    view_hash=view_hash,
-                )
-            except notifications.SlackDeliveryError as update_err:
-                notifications.log_event(
-                    "Slack Interaction",
-                    step="modal_update_failed",
-                    error=str(update_err),
-                )
-    except Exception as exc:
         if frappe is not None:
-            frappe.db.rollback()  # type: ignore[attr-defined]
-        notifications.log_event(
-            "Slack Interaction",
-            step="exception_async",
-            message=str(exc),
+            frappe.log_error(message=str(exc), title="PulseCheck Slack Interaction")  # type: ignore[attr-defined]
+        return _send_response(
+            {
+                "response_action": "update",
+                "view": _build_error_modal(str(exc)),
+            }
         )
-        if token and view_id:
-            try:
-                notifications.update_slack_view(
-                    token,
-                    view_id,
-                    _build_error_modal("We couldn’t record your pulse check. Please try again."),
-                    view_hash=view_hash,
-                )
-            except notifications.SlackDeliveryError as update_err:
-                notifications.log_event(
-                    "Slack Interaction",
-                    step="modal_update_failed",
-                    error=str(update_err),
-                )
-        raise
