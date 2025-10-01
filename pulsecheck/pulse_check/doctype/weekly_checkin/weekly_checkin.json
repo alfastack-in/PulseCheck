@@ -1,6 +1,6 @@
 {
  "actions": [],
- "autoname": "format:WC-{employee}-{date}-{###}",
+ "autoname": "format:WC-{employee}-{posting_date}-{###}",
  "creation": "2025-09-27 16:32:51.400929",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -42,6 +42,7 @@
   {
    "fieldname": "employee",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Employee",
    "options": "Employee",
    "reqd": 1
@@ -68,9 +69,11 @@
   {
    "fieldname": "goal",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Goal",
    "options": "Goal",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "section_break_vtdp",
@@ -79,6 +82,7 @@
   {
    "fieldname": "progress_reported",
    "fieldtype": "Int",
+   "in_list_view": 1,
    "label": "Progress Reported",
    "reqd": 1
   },
@@ -125,7 +129,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-09-27 16:40:24.524453",
+ "modified": "2025-10-01 18:19:46.599722",
  "modified_by": "Administrator",
  "module": "Pulse Check",
  "name": "Weekly Checkin",
@@ -144,6 +148,15 @@
    "share": 1,
    "submit": 1,
    "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1
   }
  ],
  "row_format": "Dynamic",
