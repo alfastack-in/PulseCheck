@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:  # pragma: no cover - runtime fallback for environments without werkzeug
     from werkzeug.wrappers import Response as WerkzeugResponse

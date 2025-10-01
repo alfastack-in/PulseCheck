@@ -77,7 +77,9 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Install MariaDB Client
-        run: sudo apt-get install mariadb-client-10.6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
 
       - name: Setup
         run: |
@@ -89,10 +91,12 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
+          bench get-app erpnext --branch version-15
+          bench get-app hrms --branch version-15
           bench get-app pulsecheck $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app pulsecheck
+          bench --site test_site install-app erpnext hrms pulsecheck
           bench build
         env:
           CI: 'Yes'
