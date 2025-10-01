@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
 
 try:  # pragma: no cover - runtime fallback for environments without werkzeug
     from werkzeug.wrappers import Response as WerkzeugResponse
 except ModuleNotFoundError:  # pragma: no cover - tests may stub this
     WerkzeugResponse = None  # type: ignore[assignment]
-from types import SimpleNamespace
 
 from . import digests, notifications, prompts
 
